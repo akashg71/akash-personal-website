@@ -1,0 +1,106 @@
+---
+title: "SAE interpretability on GPT-2: first results"
+date: "2026-06-15"
+excerpt: "What I found after running feature exploration and causal interventions on a pretrained sparse autoencoder. One feature surprised me."
+---
+
+Phases 1 and 2 of the SAE interpretability project are done. Here's what actually happened — including what didn't work and one finding that genuinely surprised me.
+
+## Setup
+
+The stack: GPT-2-small (124M params, 12 layers, d_model=768), a pretrained SAE from Joseph Bloom's work (`gpt2-small-res-jb`), hooked at layer 8's residual stream (`blocks.8.hook_resid_pre`). The SAE has 24,576 features — a 32× expansion of the 768-dim residual stream.
+
+Phase 1 explored 20 of those 24,576 features. Phase 2 tested whether the labels I gave them were actually causal.
+
+## How feature exploration works (Phase 1)
+
+For each feature, two independent signals:
+
+**Logit-lens** — purely mathematical. Take the feature's decoder direction (a 768-dim vector), project it through GPT-2's unembedding matrix. The top tokens in that projection are what this direction "votes for" at the output. Fast, but unreliable — it ignores LayerNorm and that we're at layer 8, not the final layer.
+
+**Max-activating examples** — empirical. Run 2,000 real text documents through GPT-2, record the SAE feature's activation at every token position, find the 10 tokens where it fired hardest, show surrounding context. Slower, but honest. When the two methods disagree, trust this one.
+
+## What I labelled and what held up
+
+Five features I was confident enough to label:
+
+| Feature | Density | Label |
+|---------|---------|-------|
+| #7137 | 3.24% | Code — XML tags, config file syntax, dot notation |
+| #488 | 1.07% | Code/markdown structure — imports, `###` headers, indentation |
+| #16836 | 1.12% | Pivot/consequence words ("so", "therefore", "thus", "instead") |
+| #13481 | 1.47% | *Mislabelled initially — see below* |
+| #9577 | 1.37% | Institutionally confined or vulnerable people |
+
+The density column matters: features firing on 1–4% of tokens are in the healthy range. Too dense (>10%) and the feature is firing on almost everything, too vague to be useful.
+
+## What Phase 2 actually tests
+
+Clamping: add `alpha × decoder_direction` to the residual stream at every token during generation. Forces the feature on artificially. If my label is correct, the model should start generating text that matches the concept.
+
+Ablation: remove the feature's contribution from the residual stream at every token. If the feature was naturally firing on my prompt, removing it should shift the output.
+
+The causal claim is: if clamping steers toward the label AND ablating shifts away from it, the feature isn't just correlated with the concept — it's causally upstream of it.
+
+## The mislabelled feature (#13481)
+
+I labelled #13481 as "modal necessity/obligation" based on one example: *"it may be necessary to perform a joint replacement."* Seemed reasonable.
+
+Then I clamped it. The boosted tokens were: `usually`, `invariably`, `depending`, `sometimes`, `beforehand`, `whichever`.
+
+Those aren't obligation words. They're **frequency and hedge words**. The feature is about how often things happen, not whether they're required. One example was enough to build a wrong hypothesis. The logit-lens hint had said "usually, often, invariably" which I'd ignored in favour of the example. It was right.
+
+Corrected label: frequency/habitual language.
+
+## The surprising finding (#9577)
+
+Feature #9577 had logit-lens tokens: `inmates`, `patients`, `prisoners`, `detainees`, `captives`. I labelled it "medical/clinical text" because the max-activating examples were all hospital contexts — "Apollo Hospital in Delhi", "34 patients undergoing", "ESRD in 50% of patients by 60y."
+
+When I ran the causal test with prompt `"After surgery, patients with severe"`, the boosted tokens were:
+
+```
++7.31  juveniles
++7.19  prisoners
++7.16  inmates
++6.31  detainees
++6.08  Iraqis
++5.96  youngsters
++5.83  offenders
++5.81  addicts
++5.71  homosexuals
++5.67  migrants
+```
+
+Not medical at all. This feature encodes **people under institutional control or confinement with limited agency** — medical patients, prisoners, detainees, refugees, addicts, juveniles. The SAE independently discovered that hospitals, prisons, and detention centres share a deep structural similarity in how language describes the people inside them.
+
+That's not something I would have hypothesised going in. It's a concept that cuts across what we'd normally consider separate domains.
+
+## The generation diffs
+
+Best before/after (prompt: `"Apollo Hospital in Delhi have saved the life of"`, alpha=40):
+
+```
+baseline:  "...a young girl who was shot dead by a man who was trying to rob her."
+clamped:   "...a man who was injured in the same. The man was taken to the hospital."
+ablated:   "...a young woman who was shot in the head by a man trying to rob her."
+```
+
+Three distinct outputs. Baseline generated a crime narrative about a girl. Clamped shifted into a hospital narrative. Ablated changed "girl" to "woman" — the feature was contributing something specifically about youth/vulnerability, and removing it nudged toward a more generic adult.
+
+This is what a clean causal result looks like — small but real, and it confirms the label.
+
+## What didn't work
+
+Feature #7137 (code/XML syntax) showed almost no steering effect even at alpha=20. The boosted tokens were proper nouns (Myst, Leone, Blaz) — not code tokens. The logit-lens hint was actively misleading.
+
+My interpretation: #7137 is a document-type feature. It fires when the model is already inside a code document, signalling context. That's different from being causally upstream of code token generation. Forcing it on a prompt like "I am going to gym" doesn't produce code — there's no scaffolding for the model to build on.
+
+## One bug found
+
+The pretrained SAE (SAELens) stores its decoder weight matrix as `(d_sae, d_model)` = `(24576, 768)` — each row is a feature direction. The codebase was written assuming `(d_model, d_sae)` — each column is a feature direction. The index `W_dec[:, 7137]` was trying to select column 7137 from a 768-column matrix and crashing.
+
+Fix: detect the layout from the shape (`shape[0] > shape[1]` means SAELens layout, use row indexing) and apply the right one. Two files needed patching: `features.py` and `interventions.py`.
+
+## Next
+
+Phase 3 is training my own SAE from scratch on the same activations — the `SparseAutoencoder` class I wrote, not Bloom's pretrained weights. The goal is to confirm I understand the architecture well enough to reproduce the phenomenon, not just analyse someone else's result. Needs a GPU; running on Colab.

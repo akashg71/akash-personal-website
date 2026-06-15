@@ -1,0 +1,35 @@
+---
+title: "Starting the interpretability project"
+date: "2026-06-01"
+excerpt: "Why I started reverse-engineering transformers from scratch, and what sparse autoencoders have to do with it."
+---
+
+Mechanistic interpretability is the field that tries to reverse-engineer what's happening inside neural networks — not just what they output, but what features and algorithms they implement internally.
+
+I started this project because I got tired of treating language models as black boxes. I wanted to understand the actual mechanics, not the API surface.
+
+## The problem: superposition
+
+Neural networks represent vastly more concepts than they have dimensions. GPT-2-small has a 768-dimensional residual stream per token, but it needs to track thousands of distinct concepts simultaneously. It does this by storing multiple features in superposition — overlapping them in the same dimensions, tolerating interference because most features are sparse (rarely active at the same time).
+
+This makes individual neurons nearly uninterpretable. One neuron responds to "Python code", "medical terminology", and "formal writing" simultaneously — not because it's doing something clever, but because it's been forced to share space.
+
+## The tool: Sparse Autoencoders
+
+A Sparse Autoencoder (SAE) tries to undo this. It takes a transformer's internal activation vector (768-dim) and maps it to a much larger space (24,576-dim in the case I'm studying), where each dimension is forced to be sparse via an L1 penalty. The hope is that the larger space has enough room to assign each concept its own dedicated dimension — making individual features interpretable.
+
+The architecture is simple:
+
+```
+f = ReLU( (x - b_dec) @ W_enc + b_enc )   # sparse feature codes
+x_hat = f @ W_dec + b_dec                  # reconstruction
+Loss = ||x - x_hat||² + λ||f||₁           # accuracy + sparsity
+```
+
+The L1 term forces most of the 24,576 features to zero for any given input. The ones that remain are the features that fired — and the claim is that each of those corresponds to a human-interpretable concept.
+
+## What I'm actually building
+
+The project runs on GPT-2-small (124M parameters, 12 layers). I'm using a pretrained SAE from Joseph Bloom's work at Anthropic to do Phase 1 and 2 — exploring and causally validating features. Phase 3 is training my own SAE from scratch to prove I understand the architecture, not just the result.
+
+More notes as the phases progress.

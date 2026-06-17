@@ -39,7 +39,7 @@ export default async function PostPage({ params }: { params: Params }) {
   const { meta, content } = post!
 
   return (
-    <main className="max-w-2xl mx-auto px-6">
+    <main className="max-w-3xl mx-auto px-6">
       <Nav />
 
       <Link
@@ -50,11 +50,27 @@ export default async function PostPage({ params }: { params: Params }) {
       </Link>
 
       <article>
-        <h1 className="text-2xl font-medium text-stone-900 mb-2">{meta.title}</h1>
-        {meta.date && (
-          <time className="text-xs text-stone-400">{formatDate(meta.date)}</time>
-        )}
-        <div className="mt-10 prose prose-stone max-w-none prose-a:text-stone-900">
+        {/* Post header */}
+        <header className="mb-10">
+          <h1 className="text-2xl font-semibold text-stone-900 leading-snug mb-3">
+            {meta.title}
+          </h1>
+          {meta.date && (
+            <time className="text-xs text-stone-400 tracking-wide uppercase">
+              {formatDate(meta.date)}
+            </time>
+          )}
+          {meta.excerpt && (
+            <p className="mt-4 text-[15px] text-stone-500 leading-relaxed border-l-2 border-stone-200 pl-4">
+              {meta.excerpt}
+            </p>
+          )}
+        </header>
+
+        <hr className="border-stone-200 mb-10" />
+
+        {/* Article body */}
+        <div className="prose prose-stone max-w-none prose-a:text-stone-800 prose-a:underline prose-a:underline-offset-2">
           <MDXRemote source={content} />
         </div>
       </article>

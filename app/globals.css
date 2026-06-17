@@ -12,3 +12,106 @@ body {
   color: var(--color-foreground);
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Prose overrides ─────────────────────────────────────── */
+
+/* Code blocks — dark terminal look */
+.prose pre {
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prose pre code {
+  background: transparent;
+  color: #d4d4d8;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  line-height: 1.8;
+  border-radius: 0;
+  font-weight: 400;
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+/* Strip the backtick quotes the typography plugin adds around inline code */
+.prose code::before,
+.prose code::after {
+  content: '' !important;
+}
+
+/* Inline code — subtle pill */
+.prose :not(pre) > code {
+  background: #f4f4f5;
+  color: #292524;
+  border: 1px solid #e4e4e7;
+  padding: 0.1em 0.4em;
+  border-radius: 0.3rem;
+  font-size: 0.865em;
+  font-weight: 500;
+}
+
+/* Table — scrollable, clean borders */
+.prose table {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.prose thead tr {
+  background: #f5f5f4;
+  border-bottom: 2px solid #d6d3d1;
+}
+
+.prose thead th {
+  color: #1c1917;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 0.65rem 1rem;
+}
+
+.prose tbody td {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid #e7e5e4;
+  vertical-align: top;
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Headings */
+.prose h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  color: #1c1917;
+}
+
+.prose h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+  color: #1c1917;
+}
+
+/* Strong */
+.prose strong {
+  color: #1c1917;
+  font-weight: 650;
+}
+
+/* Paragraph spacing */
+.prose p {
+  line-height: 1.8;
+  color: #292524;
+}

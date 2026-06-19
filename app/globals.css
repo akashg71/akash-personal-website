@@ -59,33 +59,46 @@ body {
   display: block;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  width: 100%;
+  border: 1px solid #e7e5e4;
+  border-radius: 0.5rem;
+  overflow: hidden; /* clip border-radius */
+}
+
+.prose thead {
+  background: #f5f5f4;
 }
 
 .prose thead tr {
-  background: #f5f5f4;
   border-bottom: 2px solid #d6d3d1;
 }
 
 .prose thead th {
-  color: #1c1917;
+  color: #44403c;
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 0.65rem 1rem;
+  padding: 0.7rem 1.1rem;
+  text-align: left;
 }
 
 .prose tbody td {
-  padding: 0.6rem 1rem;
-  border-bottom: 1px solid #e7e5e4;
+  padding: 0.65rem 1.1rem;
+  border-bottom: 1px solid #f0efee;
   vertical-align: top;
+  color: #292524;
+  line-height: 1.55;
 }
 
 .prose tbody tr:last-child td {
   border-bottom: none;
+}
+
+.prose tbody tr:hover td {
+  background: #fafaf9;
 }
 
 /* Headings */

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
 import { MDXRemote } from 'next-mdx-remote/rsc'
+import remarkGfm from 'remark-gfm'
 import { getPost, getAllPostSlugs, formatDate, type Section } from '@/lib/content'
 
 const validSections: Section[] = ['engineering', 'markets', 'music', 'writing']
@@ -71,7 +72,7 @@ export default async function PostPage({ params }: { params: Params }) {
 
         {/* Article body */}
         <div className="prose prose-stone max-w-none prose-a:text-stone-800 prose-a:underline prose-a:underline-offset-2">
-          <MDXRemote source={content} />
+          <MDXRemote source={content} options={{ mdxOptions: { remarkPlugins: [remarkGfm] } }} />
         </div>
       </article>
 

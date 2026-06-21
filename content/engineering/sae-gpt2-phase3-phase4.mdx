@@ -1,0 +1,97 @@
+---
+title: "Training an SAE from scratch — dynamics, dead features, and a flat frontier"
+date: "2026-06-21"
+excerpt: "What actually happens when you train a sparse autoencoder yourself: a staircase not a gradient, a window problem, and why a 50x change in lambda did almost nothing."
+---
+
+Phases 3 and 4. Phase 3 was training my own SAE from scratch on GPT-2's activations — not using a pretrained one. Phase 4 swept the sparsity penalty across six values to trace the L0 vs variance-explained frontier. Both had results I didn't expect.
+
+## Phase 3: training from scratch
+
+The point isn't to beat the published result. It's to prove I understand the architecture well enough to reproduce the phenomenon, not just run analysis on someone else's weights.
+
+**Architecture.** Custom `SparseAutoencoder`: encoder `f = ReLU((x − b_dec) @ W_enc + b_enc)`, decoder `x_hat = f @ W_dec + b_dec`, loss = squared L2 reconstruction + λ·L1 on activations. Trained on 256,000 activation vectors from GPT-2's layer 8 residual stream, 4096 per batch. GPU: Colab T4.
+
+**First attempt: 4× expansion (d_sae=3072).** Final L0=1524. That's 1,524 of 3,072 features active per token — 50% utilisation. Not sparse at all. At this scale the optimizer sees no incentive to be selective: with only 3,072 features, having many active simultaneously is the only way to reconstruct well. The expansion is too small for specialisation.
+
+**Second attempt: 8× expansion (d_sae=6144), 40k steps, λ=0.004.** This is where it got interesting.
+
+## The staircase
+
+I expected L0 to gradually drift downward as training progressed. That's not what happened.
+
+L0 stayed at a plateau (~1515) for thousands of steps, then a dead-feature resampling event would occur — where features that hadn't fired in 2,000 steps get reinitialised toward poorly-reconstructed inputs. The resample temporarily crashes L0 (sometimes all the way to 692), then L0 climbs back up, but to a *lower plateau* than before:
+
+```
+steps 1–10k:  plateau ~1515
+after 10k:    plateau ~1450   (18 features resampled, small shock)
+after 14k:    plateau ~1400   (960 features resampled — massive)
+after 16k:    plateau ~1375   (533 resampled)
+after 18k:    plateau ~1210   (831 resampled, L0 briefly hit 692)
+after 20k:    plateau ~1215   (briefly climbs — run not done yet)
+...
+after 34k:    plateau ~1130   (only 139 resampled — healthiest event)
+after 36k:    plateau ~1115   (lowest point in the run)
+after 38k–40k: climbs to 1161 (cascade restarts, 836 resampled at step 40k)
+```
+
+The training isn't smoothly converging — it's descending in steps. Each resampling event acts as a shock that briefly forces L0 very low, and the new equilibrium after recovery is lower than before.
+
+Final result at step 40,000: **L0=1161, VE=1.000** (19% of features active, perfect reconstruction).
+
+## The dead feature window problem
+
+The massive resampling events (960 features at step 14k, 831 at step 18k, 836 at step 40k) reveal a configuration problem. The `dead_feature_window` parameter controls both: (a) how long a feature can go without firing before being declared dead, and (b) how often resampling is checked. Both were set to 2,000 steps.
+
+With 6,144 features and a 2,000-step window:
+- Features get 2,000 steps to prove themselves
+- Many fail — dying in waves
+- The waves synchronise: dead features pile up between checks, then all get resampled at once
+- 960 features resampled simultaneously disrupts everything the SAE has learned
+
+The fix (already in the config): `dead_feature_window: 5000`. Features get 2.5× more time to find their role, resampling batches stay small, cascades don't form.
+
+The cascade pattern also shows up in the dead fraction metric — at step 36,000 it was only 2.6%, but by step 39,900 it had climbed to 9.9%. Features resampled at step 36k were dying again before the next window, creating a new wave.
+
+## Phase 4: the lambda frontier
+
+Phase 4 trains short SAEs (3,000 steps each) across six λ values and plots the L0 vs variance-explained frontier.
+
+| λ | L0 (3k steps) | VE |
+|---|---|---|
+| 1×10⁻⁴ | 1679 | 0.997 |
+| 2×10⁻⁴ | 1686 | 0.998 |
+| 5×10⁻⁴ | 1684 | 0.998 |
+| 1×10⁻³ | 1680 | 0.998 |
+| 2×10⁻³ | 1679 | 0.998 |
+| **5×10⁻³** | **1673** | **0.998** |
+
+A 50× increase in λ reduced L0 by 6 points. The frontier is essentially flat.
+
+This is the expected result once you understand the training dynamics. At 3,000 steps, the SAE is still in the reconstruction-learning phase — recon loss is ~182 when the L1 loss is only 0.59 (at λ=1×10⁻⁴). The optimizer is spending its entire budget driving the large reconstruction error down. L1 is too small relative to reconstruction loss to influence feature selection yet.
+
+Compare to the Phase 3 result: **λ=4×10⁻³, 40k steps → L0=1161**. Same λ range, 13× more steps. The bottleneck is training time, not penalty strength.
+
+The L1 penalty starts having real influence around step 8k–10k, once reconstruction loss has stabilised. Before that, all λ values look the same.
+
+This means the frontier sweep as configured is measuring the *early-training regime*, not the *converged regime*. A proper frontier for this architecture would need ~10k–20k steps per λ, taking around 2 hours total. Noted for a future run.
+
+## What I'd do next
+
+Three things that would actually improve the result:
+
+1. **`dead_feature_window: 5000`** (already updated in config) — reduces resampling chaos, lets the staircase descent stabilise
+2. **More steps at λ=0.004** — the 40k run was still descending at the end; 80k would likely push L0 toward 800–900
+3. **Phase 4 with 10k steps/λ** — would show real frontier differentiation; expected curve is VE drops from 0.998 at low λ to ~0.85 at λ=0.05
+
+The published 32× SAE achieves L0~40 at VE>0.99. The gap from L0=1161 to L0=40 is mostly a matter of: 4× more dictionary capacity (32× vs 8× expansion) and a much longer, more optimised training run. Both are just compute — the architecture and code work.
+
+## Project status
+
+| Phase | Result |
+|-------|--------|
+| 0 — Stack setup | Done |
+| 1 — Feature exploration | 5 features labelled; discovered cross-domain "institutional confinement" cluster |
+| 2 — Causal validation | #9577 proven causal; corrected one mislabel through evidence |
+| 3 — Train custom SAE | 8× expansion, 40k steps → L0=1161, VE=1.000; resampling dynamics documented |
+| 4 — Lambda frontier | Flat at 3k steps; confirms bottleneck is training time, not λ |

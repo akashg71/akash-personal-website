@@ -89,7 +89,9 @@ Running 50 max-activating examples, the feature fires 68% on medical/clinical re
 
 But the steering signal reveals something much broader. The boosted tokens include not just institutionally confined people (prisoners, detainees, juveniles, addicts) but also groups that are marginalised without being confined: homosexuals, Iraqis, Somalis, migrants. Zero of those groups appear in the max-activating firing examples.
 
-The best current hypothesis: GPT-2 has internalised a representation where patients, prisoners, lab animals, and minority groups share a common register — all described as **objects of institutional attention** in the training data. The feature captures that cluster. This is a **bias/representation finding**: the model has collapsed disparate social categories into a single learned direction because they tend to appear in the same depersonalised, institutional language. That's not a quirk of this one SAE feature — it's a property of how GPT-2's representations were shaped by its training distribution.
+The best current hypothesis: GPT-2 has internalised a representation where patients, prisoners, lab animals, and minority groups share a common register — all described as **objects of institutional attention** in the training data. If correct, this would be a **bias/representation finding**: the model has collapsed disparate social categories into a single learned direction because they tend to appear in the same depersonalised, institutional language in training text.
+
+It's a hypothesis, not a confirmed result. What the evidence does establish: the feature is causally upstream of something real (clamping and ablation both shift output consistently), the steering effect appears at α=5 (in-distribution, not an artefact of extreme intervention), and the same cluster appears across six diverse prompts. What it doesn't establish: whether "objects of institutional attention" is the right frame or a plausible story fitted over a simpler pattern (syntactic register, vocabulary overlap in the training data, rare co-occurrence); and whether this generalises beyond this one SAE trained at this one layer.
 
 ## The generation diffs
 

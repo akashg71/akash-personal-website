@@ -30,7 +30,7 @@ Five features I was confident enough to label:
 | #488 | 1.07% | Code/markdown structure — imports, `###` headers, indentation |
 | #16836 | 1.12% | Pivot/consequence words ("so", "therefore", "thus", "instead") |
 | #13481 | 1.47% | *Mislabelled initially — see below* |
-| #9577 | 1.37% | Institutionally confined or vulnerable people |
+| #9577 | 1.37% | Marginalised people as objects of institutional description (hypothesis — see below) |
 
 The density column matters: features firing on 1–4% of tokens are in the healthy range. Too dense (>10%) and the feature is firing on almost everything, too vague to be useful.
 
@@ -71,9 +71,13 @@ When I ran the causal test with prompt `"After surgery, patients with severe"`, 
 +5.67  migrants
 ```
 
-Not medical at all. This feature encodes **people under institutional control or confinement with limited agency** — medical patients, prisoners, detainees, refugees, addicts, juveniles. The SAE independently discovered that hospitals, prisons, and detention centres share a deep structural similarity in how language describes the people inside them.
+Not just medical text — and the picture is more complicated than my first interpretation.
 
-That's not something I would have hypothesised going in. It's a concept that cuts across what we'd normally consider separate domains.
+Running 50 max-activating examples, the feature fires 68% on medical/clinical research text and 20% on animal research — and the token that peaks is nearly always a preposition: "records【of】patients", "brachytherapy【in】comparison", "kidneys【of】mice subjected to UUO". Not the vulnerable-group noun itself. The feature appears to encode a **syntactic expectation**: *an institutional subject follows here*.
+
+But the steering signal reveals something much broader. The boosted tokens include not just institutionally confined people (prisoners, detainees, juveniles, addicts) but also groups that are marginalised without being confined: homosexuals, Iraqis, Somalis, migrants. Zero of those groups appear in the max-activating firing examples.
+
+The best current hypothesis: GPT-2 has internalised a representation where patients, prisoners, lab animals, and minority groups share a common register — all described as **objects of institutional attention** in the training data. The feature captures that cluster. This is a **bias/representation finding**: the model has collapsed disparate social categories into a single learned direction because they tend to appear in the same depersonalised, institutional language. That's not a quirk of this one SAE feature — it's a property of how GPT-2's representations were shaped by its training distribution.
 
 ## The generation diffs
 
@@ -87,7 +91,7 @@ ablated:   "...a young woman who was shot in the head by a man trying to rob her
 
 Three distinct outputs. Baseline generated a crime narrative about a girl. Clamped shifted into a hospital narrative. Ablated changed "girl" to "woman" — the feature was contributing something specifically about youth/vulnerability, and removing it nudged toward a more generic adult.
 
-This is what a clean causal result looks like — small but real, and it confirms the label.
+A real causal result. Both directions fit the revised label: clamping shifts into the medical/institutional register (what the feature fires on); ablating removes the specifically-young, specifically-vulnerable framing (part of the broader representation it encodes).
 
 ## What didn't work
 

@@ -42,6 +42,8 @@ Ablation: remove the feature's contribution from the residual stream at every to
 
 The causal claim is: if clamping steers toward the label AND ablating shifts away from it, the feature isn't just correlated with the concept — it's causally upstream of it.
 
+The clamping effect is measured as a **boosted-token table**: for each candidate next token, compute the raw logit under clamping minus the raw logit at baseline, at the last prompt position. A score of +7.31 for "juveniles" means the model's log-probability for generating "juveniles" next increased by 7.31 when the feature was clamped on at α=40.
+
 ## The mislabelled feature (#13481)
 
 I labelled #13481 as "modal necessity/obligation" based on one example: *"it may be necessary to perform a joint replacement."* Seemed reasonable.
@@ -56,7 +58,7 @@ Corrected label: frequency/habitual language.
 
 Feature #9577 had logit-lens tokens: `inmates`, `patients`, `prisoners`, `detainees`, `captives`. I labelled it "medical/clinical text" because the max-activating examples were all hospital contexts — "Apollo Hospital in Delhi", "34 patients undergoing", "ESRD in 50% of patients by 60y."
 
-When I ran the causal test with prompt `"After surgery, patients with severe"`, the boosted tokens were:
+When I ran the causal test with prompt `"After surgery, patients with severe"` at α=40, the top-10 boosted tokens (next-token logit difference, clamped − baseline) were:
 
 ```
 +7.31  juveniles

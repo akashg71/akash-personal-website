@@ -71,6 +71,18 @@ When I ran the causal test with prompt `"After surgery, patients with severe"`, 
 +5.67  migrants
 ```
 
+**The fire-vs-steer gap**
+
+In a well-behaved monosemantic feature, what fires it and what steering reveals should be the same concept. Here they aren't:
+
+| What fires this feature | What steering reveals |
+|---|---|
+| Prepositions ("of"/"in") in clinical/research text | Prisoners, detainees, juveniles, addicts |
+| 68% medical, 20% animal research contexts | Homosexuals, Iraqis, Somalis, migrants |
+| 0% prison, 0% detention, 0% migration | — absent from firing examples entirely |
+
+That gap is the central puzzle of this finding. It would be easy to paper over it by just picking one side ("it's a medical feature", or "it's a confinement feature") — but neither fits the full evidence.
+
 Not just medical text — and the picture is more complicated than my first interpretation.
 
 Running 50 max-activating examples, the feature fires 68% on medical/clinical research text and 20% on animal research — and the token that peaks is nearly always a preposition: "records【of】patients", "brachytherapy【in】comparison", "kidneys【of】mice subjected to UUO". Not the vulnerable-group noun itself. The feature appears to encode a **syntactic expectation**: *an institutional subject follows here*.

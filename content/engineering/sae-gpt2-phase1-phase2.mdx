@@ -117,6 +117,28 @@ A real causal result — but with an asymmetry worth naming. Clamping produced a
 
 That asymmetry is expected: clamping forces the feature far above its natural activation level, so the effect is large. Ablation removes a contribution that was already present at its natural level — which may be modest. But it also means the ablation side of the causal claim is weaker than the clamping side, and should be read as supporting evidence rather than independent proof.
 
+## The negative direction (α=-40)
+
+If positive clamping (α=+40) steers toward vulnerable/institutional people, negative clamping (α=-40) subtracts that direction at the same magnitude. The question is: what fills the space when the feature is actively suppressed?
+
+Two generation diffs stand out:
+
+```
+prompt:   "At the border, the officials saw"
+baseline: "...a man with a gun and a knife."
+α=-40:    "...a bright light of the day, and they were ready to go."
+
+prompt:   "After surgery, patients with severe"
+baseline: "...pain and swelling...walk...doctor..."
+α=-40:    "...pain and swelling of the lower back...acetaminophen-containing acetaminophen-containing..."
+```
+
+In both cases, the human subject disappears. The border scene loses the armed man entirely; the surgery output stays medical but shifts toward pharmaceutical product language, with the patient becoming less present. The boosted-token table (next-token logit increases under suppression) is dominated by code identifiers and commercial terms: `dayName`, `inventoryQuantity`, `EntityItem`, `dealership`, `Insurance`, `warranty`.
+
+The negative pole of the feature looks like **non-human, technical, transactional content** — code database fields, commercial products, no persons. Consistent with the hypothesis that the feature encodes a dimension from "impersonal/technical" to "human subjects of institutional attention."
+
+One caveat: SAE features use ReLU activations and are only trained on non-negative values. Forcing the feature to -40 pushes the residual stream into territory the SAE has never represented. The boosted-token table reflects this — it includes garbage tokens (control characters, byte fragments, partial corporate names like `isoft` for Microsoft) alongside the meaningful commercial terms. The generation diffs, which go through GPT-2's full forward pass, are more robust. Read the generations as evidence; treat the token table as directional but noisy.
+
 ## What didn't work
 
 Feature #7137 (code/XML syntax) showed almost no steering effect even at alpha=20. The boosted tokens were proper nouns (Myst, Leone, Blaz) — not code tokens. The logit-lens hint was actively misleading.

@@ -4,6 +4,10 @@ date: "2026-06-15"
 excerpt: "What I found after running feature exploration and causal interventions on a pretrained sparse autoencoder. One feature surprised me."
 ---
 
+**TL;DR:** One feature in GPT-2-small's pretrained SAE — #9577 — steers generation toward a cluster of marginalised groups: patients, prisoners, juveniles, addicts, and also homosexuals, Iraqis, Somalis. It fires on clinical prepositions in medical text, not on those group nouns themselves. Working hypothesis: GPT-2 has learned a single representation for "people described as objects of institutional attention" — a concept that spans medicine, incarceration, and social marginalisation because they share a register in the training data. The causal signal is real at low steering strength (α=5). The interpretation is a hypothesis, not a confirmed result; the fire-vs-steer mismatch is the interesting open question.
+
+---
+
 Phases 1 and 2 of the SAE interpretability project are done. Here's what actually happened — including what didn't work and one finding that genuinely surprised me.
 
 ## Setup

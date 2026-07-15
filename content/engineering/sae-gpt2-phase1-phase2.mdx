@@ -16,6 +16,8 @@ The stack: GPT-2-small (124M params, 12 layers, d_model=768), a pretrained SAE f
 
 Phase 1 explored 20 of those 24,576 features. Phase 2 tested whether the labels I gave them were actually causal.
 
+The 20 weren't hand-picked for interest. The script sampled 400 features at even spacing across the full index (every ~61st feature), filtered to those with density between 0.2% and 15% — the range where individual features tend to be specific enough to interpret — sorted by density, and took the top 20. Feature selection happened before looking at any examples.
+
 ## How feature exploration works (Phase 1)
 
 For each feature, two independent signals:
@@ -111,7 +113,9 @@ ablated:   "...a young woman who was shot in the head by a man trying to rob her
 
 Three distinct outputs. Baseline generated a crime narrative about a girl. Clamped shifted into a hospital narrative. Ablated changed "girl" to "woman" — the feature was contributing something specifically about youth/vulnerability, and removing it nudged toward a more generic adult.
 
-A real causal result. Both directions fit the revised label: clamping shifts into the medical/institutional register (what the feature fires on); ablating removes the specifically-young, specifically-vulnerable framing (part of the broader representation it encodes).
+A real causal result — but with an asymmetry worth naming. Clamping produced a large, consistent effect across six diverse prompts at multiple alpha values. Ablation produced a subtle one-word shift (girl → woman) on the single prompt where the feature fired hardest naturally. The direction fits the label; the magnitude is mild.
+
+That asymmetry is expected: clamping forces the feature far above its natural activation level, so the effect is large. Ablation removes a contribution that was already present at its natural level — which may be modest. But it also means the ablation side of the causal claim is weaker than the clamping side, and should be read as supporting evidence rather than independent proof.
 
 ## What didn't work
 

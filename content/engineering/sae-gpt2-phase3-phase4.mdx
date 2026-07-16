@@ -16,7 +16,7 @@ The point isn't to beat the published result. It's to prove I understand the arc
 
 **Dataset note (honest accounting).** The 256k activation vectors are a fixed pre-harvested pool. At 4,096 tokens/batch and 40k steps, the loop processes ~164 million token-vectors — approximately 640 passes over the same 256k examples. Variance explained is measured on the **training batch**, not held-out data. At 640 epochs over a fixed set, VE=1.000 may partly reflect **memorisation** of the training distribution rather than true generalisation. Dataset size is a likely confound for both the reconstruction quality and the flat frontier in Phase 4. The honest fix would be to stream activations from a larger corpus (e.g. SAELens `ActivationsStore`) and evaluate VE on a held-out split — deferred to a future run.
 
-**First attempt: 4× expansion (d_sae=3072).** Final L0=1524. That's 1,524 of 3,072 features active per token — 50% utilisation. Not sparse at all. At this scale the optimizer sees no incentive to be selective: with only 3,072 features, having many active simultaneously is the only way to reconstruct well. The expansion is too small for specialisation.
+**First attempt: 4× expansion (d_sae=3072).** Final L0=1524. That's 1,524 of 3,072 features active per token — 50% utilisation. Not sparse at all. At this scale the optimizer sees no incentive to be selective: with only 3,072 features, keeping many active simultaneously is the cheapest way to reconstruct well. Dictionary size is a factor — but as the 8× run shows, doubling the dictionary to 6,144 still left L0 at 1,161 (19% active). The non-sparsity is at least as much about the training regime (dataset size, step count, λ) as about dictionary capacity.
 
 **Second attempt: 8× expansion (d_sae=6144), 40k steps, λ=0.004.** This is where it got interesting.
 
@@ -57,7 +57,7 @@ With 6,144 features and a 2,000-step window:
 
 The fix (already in the config): `dead_feature_window: 5000`. Features get 2.5× more time to find their role, resampling batches stay small, cascades don't form.
 
-The cascade pattern also shows up in the dead fraction metric — at step 36,000 it was only 2.6%, but by step 39,900 it had climbed to 9.9%. Features resampled at step 36k were dying again before the next window, creating a new wave.
+The cascade pattern also shows up in the dead fraction metric — at step 36,000 it was only 2.6% (after the healthiest event, where only 139 features were resampled), but by step 39,900 it had climbed to 9.9%, directly triggering the 836-feature resample visible in the staircase at step 40k. Features resampled at step 36k were dying again before the next 2,000-step window, because 2,000 steps wasn't long enough for them to find their role — creating a new wave before the previous one had settled.
 
 ## Phase 4: the lambda frontier
 
@@ -100,4 +100,4 @@ The published 32× SAE achieves L0~40 at VE>0.99. The gap from L0=1161 to L0=40 
 | 1 — Feature exploration | 5 features labelled; #9577 is the most interesting — marginalised/othered institutional-object cluster (hypothesis, not confirmed) |
 | 2 — Causal validation | #9577 shows a consistent causal effect (clamping strong across 6 prompts; ablation weaker); one mislabel corrected through evidence |
 | 3 — Train custom SAE | 8× expansion, 40k steps → L0=1161, VE=1.000; resampling dynamics documented |
-| 4 — Lambda frontier | Flat at 3k steps; confirms bottleneck is training time, not λ |
+| 4 — Lambda frontier | Flat at 3k steps; early-training regime is the main hypothesis, dataset size a likely confound; not a settled explanation |

@@ -12,6 +12,10 @@ The point isn't to beat the published result. It's to prove I understand the arc
 
 **Architecture.** Custom `SparseAutoencoder`: encoder `f = ReLU((x − b_dec) @ W_enc + b_enc)`, decoder `x_hat = f @ W_dec + b_dec`, loss = squared L2 reconstruction + λ·L1 on activations. Trained on 256,000 activation vectors from GPT-2's layer 8 residual stream, 4096 per batch. GPU: Colab T4.
 
+**What this phase is and isn't.** This is a training-mechanics and dynamics demonstration — not a feature-discovery result. The goal is to show the training loop works and to document what actually happens during training. The SAE at the end of Phase 3 is not at feature quality (see the L0 discussion below); it would need substantially lower L0 before individual features are interpretable in the way the pretrained Bloom SAE's features are.
+
+**Dataset note (honest accounting).** The 256k activation vectors are a fixed pre-harvested pool. At 4,096 tokens/batch and 40k steps, the loop processes ~164 million token-vectors — approximately 640 passes over the same 256k examples. Variance explained is measured on the **training batch**, not held-out data. At 640 epochs over a fixed set, VE=1.000 may partly reflect **memorisation** of the training distribution rather than true generalisation. Dataset size is a likely confound for both the reconstruction quality and the flat frontier in Phase 4. The honest fix would be to stream activations from a larger corpus (e.g. SAELens `ActivationsStore`) and evaluate VE on a held-out split — deferred to a future run.
+
 **First attempt: 4× expansion (d_sae=3072).** Final L0=1524. That's 1,524 of 3,072 features active per token — 50% utilisation. Not sparse at all. At this scale the optimizer sees no incentive to be selective: with only 3,072 features, having many active simultaneously is the only way to reconstruct well. The expansion is too small for specialisation.
 
 **Second attempt: 8× expansion (d_sae=6144), 40k steps, λ=0.004.** This is where it got interesting.
@@ -37,7 +41,9 @@ after 38k–40k: climbs to 1161 (cascade restarts, 836 resampled at step 40k)
 
 The training isn't smoothly converging — it's descending in steps. Each resampling event acts as a shock that briefly forces L0 very low, and the new equilibrium after recovery is lower than before.
 
-Final result at step 40,000: **L0=1161, VE=1.000** (19% of features active, perfect reconstruction).
+Final result at step 40,000: **L0=1161, VE=1.000** (19% of features active).
+
+**VE=1.000 is a symptom, not an achievement.** At L0=1161 active features, the SAE has more than enough capacity to fit the data — it's using 19% of its 6144-feature dictionary simultaneously, which is closer to a dense representation than sparse feature discovery. The published Bloom SAE achieves L0≈40 at VE>0.99: *that* combination (genuinely sparse AND reconstructing well) is the meaningful target. VE=1.000 at L0=1161 simply means the SAE reconstructs perfectly because it's not being forced to be selective. It is the consequence of insufficient sparsity, not evidence of a good SAE.
 
 ## The dead feature window problem
 
@@ -68,13 +74,13 @@ Phase 4 trains short SAEs (3,000 steps each) across six λ values and plots the 
 
 A 50× increase in λ reduced L0 by 6 points. The frontier is essentially flat.
 
-This is the expected result once you understand the training dynamics. At 3,000 steps, the SAE is still in the reconstruction-learning phase — recon loss is ~182 when the L1 loss is only 0.59 (at λ=1×10⁻⁴). The optimizer is spending its entire budget driving the large reconstruction error down. L1 is too small relative to reconstruction loss to influence feature selection yet.
+**Working hypothesis — not a settled explanation.** The early-training-regime story is the most plausible account for the low-λ end: at λ=1×10⁻⁴, L1 loss is only 0.59 vs reconstruction loss ~182 — reconstruction completely dominates, the sparsity penalty barely registers. But the same explanation doesn't cover λ=5×10⁻³, where L1 is approximately 15% of total loss (~29 vs recon ~182), and L0 *still* barely moved (1673 vs 1679). If step count alone were the bottleneck, the high-λ end should show meaningful separation even at 3k steps. It doesn't.
 
-Compare to the Phase 3 result: **λ=4×10⁻³, 40k steps → L0=1161**. Same λ range, 13× more steps. The bottleneck is training time, not penalty strength.
+A second confound is dataset size: with only 256k fixed activations looped ~640 times, the SAE may be finding a low-effort solution that fits the memorised training set rather than discovering structure. Both confounds (early-training regime and small/fixed dataset) likely contribute — it's not possible to separate them from this run alone.
 
-The L1 penalty starts having real influence around step 8k–10k, once reconstruction loss has stabilised. Before that, all λ values look the same.
+Compare to the Phase 3 result: **λ=4×10⁻³, 40k steps → L0=1161**. Same λ range, 13× more steps, same fixed dataset. The bottleneck is at least training time — whether it is *only* training time is the open question.
 
-This means the frontier sweep as configured is measuring the *early-training regime*, not the *converged regime*. A proper frontier for this architecture would need ~10k–20k steps per λ, taking around 2 hours total. Noted for a future run.
+A proper frontier for this architecture would need ~10k–20k steps per λ *and* a larger or streamed activation set. At 3k steps on 256k fixed activations, all six λ values are essentially measuring the same pre-convergence regime. Noted for a future run.
 
 ## What I'd do next
 
@@ -84,14 +90,14 @@ Three things that would actually improve the result:
 2. **More steps at λ=0.004** — the 40k run was still descending at the end; 80k would likely push L0 toward 800–900
 3. **Phase 4 with 10k steps/λ** — would show real frontier differentiation; expected curve is VE drops from 0.998 at low λ to ~0.85 at λ=0.05
 
-The published 32× SAE achieves L0~40 at VE>0.99. The gap from L0=1161 to L0=40 is mostly a matter of: 4× more dictionary capacity (32× vs 8× expansion) and a much longer, more optimised training run. Both are just compute — the architecture and code work.
+The published 32× SAE achieves L0~40 at VE>0.99. The gap from L0=1161 to L0=40 involves: 4× more dictionary capacity (32× vs 8× expansion), a much longer training run, and likely a larger or streamed activation set. Training time is certainly a factor — the Phase 3 run was still descending at step 40k. But the flat frontier in Phase 4 hints that sparsity pressure (λ and/or dataset scale) may also be limiting, not only steps. The architecture and training loop are correctly wired; how much of the gap is pure compute vs. dataset scale is the remaining open question.
 
 ## Project status
 
 | Phase | Result |
 |-------|--------|
 | 0 — Stack setup | Done |
-| 1 — Feature exploration | 5 features labelled; discovered cross-domain "institutional confinement" cluster |
-| 2 — Causal validation | #9577 proven causal; corrected one mislabel through evidence |
+| 1 — Feature exploration | 5 features labelled; #9577 is the most interesting — marginalised/othered institutional-object cluster (hypothesis, not confirmed) |
+| 2 — Causal validation | #9577 shows a consistent causal effect (clamping strong across 6 prompts; ablation weaker); one mislabel corrected through evidence |
 | 3 — Train custom SAE | 8× expansion, 40k steps → L0=1161, VE=1.000; resampling dynamics documented |
 | 4 — Lambda frontier | Flat at 3k steps; confirms bottleneck is training time, not λ |

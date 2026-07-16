@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   if (!validSections.includes(section as Section)) return {}
   try {
     const { meta } = getPost(section as Section, slug)
-    return { title: `${meta.title} — Akash Gupta` }
+    return { title: meta.title }
   } catch {
     return {}
   }

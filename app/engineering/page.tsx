@@ -4,7 +4,7 @@ import Nav from '@/components/Nav'
 import { getPostsBySection, formatDate } from '@/lib/content'
 
 export const metadata: Metadata = {
-  title: 'Engineering & AI Research — Akash Gupta',
+  title: 'Engineering & AI Research',
 }
 
 export default function EngineeringPage() {

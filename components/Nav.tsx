@@ -14,7 +14,7 @@ export default function Nav() {
         href="/"
         className="text-sm font-medium text-stone-900 hover:text-stone-500 transition-colors"
       >
-        akash gupta
+        akashic
       </Link>
       <div className="flex gap-6">
         {links.map(l => (

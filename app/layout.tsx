@@ -8,7 +8,10 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Akash Gupta',
+  title: {
+    template: '%s — akashic',
+    default: 'akashic',
+  },
   description:
     'Software engineer. I follow markets, study AI from first principles, and am slowly learning guitar and kalimba.',
 }

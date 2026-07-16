@@ -4,7 +4,7 @@ import Nav from '@/components/Nav'
 import { getPostsBySection, formatDate } from '@/lib/content'
 
 export const metadata: Metadata = {
-  title: 'Music — Akash Gupta',
+  title: 'Music',
 }
 
 export default function MusicPage() {

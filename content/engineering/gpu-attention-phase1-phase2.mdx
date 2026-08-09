@@ -36,9 +36,13 @@ CUDA-event timing, median of 50 runs after a separate warmup pass, GPU clocks lo
 
 Two results, not one:
 
+**Latency is not a win.** The kernel loses to naive at every sequence length tested, and the gap *widens* with N — the opposite of what "moves fewer bytes" would predict on its own. SDPA's efficiency roughly triples across the sweep (4.2 → ~13 TFLOP/s); the Triton kernel's stays flat around 1.1–1.4 the whole time. Latency numbers alone can't say why — that needed an actual profiler, not more guessing, which is the next post.
+
+![Latency vs sequence length, log-log: naive, SDPA, and Triton](/images/gpu-attention/latency_vs_seqlen.png)
+
 **Memory is a clean win.** The Triton kernel matches SDPA's near-flat footprint; naive grows quadratically (0.050GB → 10.055GB across the sweep). This is the whole thesis, visible, before any profiler gets involved.
 
-**Latency is not a win.** The kernel loses to naive at every sequence length tested, and the gap *widens* with N — the opposite of what "moves fewer bytes" would predict on its own. SDPA's efficiency roughly triples across the sweep (4.2 → ~13 TFLOP/s); the Triton kernel's stays flat around 1.1–1.4 the whole time. Latency numbers alone can't say why — that needed an actual profiler, not more guessing, which is the next post.
+![Peak memory vs sequence length: naive's O(N²) growth against Triton and SDPA's O(N)](/images/gpu-attention/peak_mem_vs_seqlen.png)
 
 ## Two bugs in my own measurement code
 

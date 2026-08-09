@@ -10,6 +10,12 @@ export interface PostMeta {
   date: string
   excerpt: string
   section: Section
+  project?: string
+}
+
+export interface PostGroup {
+  project: string
+  posts: PostMeta[]
 }
 
 const contentDir = path.join(process.cwd(), 'content')
@@ -30,9 +36,35 @@ export function getPostsBySection(section: Section): PostMeta[] {
         date: data.date ?? '',
         excerpt: data.excerpt ?? '',
         section,
+        project: data.project ?? undefined,
       }
     })
     .sort((a, b) => (a.date > b.date ? -1 : 1))
+}
+
+// Groups a section's posts by their `project` frontmatter field (falling back
+// to the post's own title for anything ungrouped, so a one-off post still
+// renders as its own section instead of silently vanishing). Groups are
+// ordered by their most recent post, newest first; posts within a group keep
+// the same newest-first order getPostsBySection already produces.
+export function getGroupedPostsBySection(section: Section): PostGroup[] {
+  const posts = getPostsBySection(section)
+  const order: string[] = []
+  const byProject = new Map<string, PostMeta[]>()
+
+  for (const post of posts) {
+    const key = post.project ?? post.title
+    if (!byProject.has(key)) {
+      byProject.set(key, [])
+      order.push(key)
+    }
+    byProject.get(key)!.push(post)
+  }
+
+  // order[] was built in newest-first post order, so the first time we see
+  // each project key is already that project's most recent post — no
+  // separate sort needed.
+  return order.map(project => ({ project, posts: byProject.get(project)! }))
 }
 
 export function getPost(section: Section, slug: string) {

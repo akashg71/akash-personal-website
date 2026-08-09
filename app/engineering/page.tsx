@@ -1,14 +1,14 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
-import { getPostsBySection, formatDate } from '@/lib/content'
+import { getGroupedPostsBySection, formatDate } from '@/lib/content'
 
 export const metadata: Metadata = {
   title: 'Engineering & AI Research',
 }
 
 export default function EngineeringPage() {
-  const posts = getPostsBySection('engineering')
+  const groups = getGroupedPostsBySection('engineering')
 
   return (
     <main className="max-w-2xl mx-auto px-6">
@@ -23,24 +23,33 @@ export default function EngineeringPage() {
         </p>
       </div>
 
-      {posts.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="text-sm text-stone-400">Nothing published yet.</p>
       ) : (
-        <ul className="space-y-8">
-          {posts.map(post => (
-            <li key={post.slug}>
-              <Link href={`/engineering/${post.slug}`} className="group flex gap-6 items-baseline">
-                <time className="text-xs text-stone-400 shrink-0 w-28">{formatDate(post.date)}</time>
-                <div>
-                  <h2 className="text-stone-900 group-hover:underline">{post.title}</h2>
-                  {post.excerpt && (
-                    <p className="text-sm text-stone-500 mt-1">{post.excerpt}</p>
-                  )}
-                </div>
-              </Link>
-            </li>
+        <div className="space-y-12">
+          {groups.map(group => (
+            <section key={group.project}>
+              <h2 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-4">
+                {group.project}
+              </h2>
+              <ul className="space-y-8">
+                {group.posts.map(post => (
+                  <li key={post.slug}>
+                    <Link href={`/engineering/${post.slug}`} className="group flex gap-6 items-baseline">
+                      <time className="text-xs text-stone-400 shrink-0 w-28">{formatDate(post.date)}</time>
+                      <div>
+                        <h3 className="text-stone-900 group-hover:underline">{post.title}</h3>
+                        {post.excerpt && (
+                          <p className="text-sm text-stone-500 mt-1">{post.excerpt}</p>
+                        )}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </main>
   )

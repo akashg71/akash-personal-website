@@ -1,7 +1,8 @@
 ---
 title: "Getting the kernel correct, then benchmarking it honestly"
-date: "2026-07-27"
+date: "2026-08-03"
 excerpt: "96/96 correctness checks pass, then the kernel loses to naive PyTorch on every single shape tested — and why that's a result to report, not a bug to quietly fix first."
+project: "GPU Inference Optimization"
 ---
 
 **TL;DR:** the Triton kernel is numerically correct — 96/96 across sequence length, head dim, batch size, causal masking, and fp16/bf16. Benchmarked against naive PyTorch and SDPA, it wins cleanly on memory (matches SDPA's flat footprint against naive's quadratic blowup) and loses on latency at every sequence length tested, by a widening margin as sequences get longer. That's a real result, not something to fix before publishing — figuring out *why* it loses despite moving fewer bytes is what the profiling phase is for.

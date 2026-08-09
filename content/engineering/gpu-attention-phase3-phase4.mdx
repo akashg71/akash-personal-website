@@ -1,7 +1,8 @@
 ---
 title: "Profiling down to the register, then an extension that broke my assumptions twice"
-date: "2026-07-29"
+date: "2026-08-05"
 excerpt: "Nsight Compute explains exactly why the kernel loses despite moving half the memory traffic — a register count, not a guess. Then a KV-cache extension delivers a real 2x win and one result I didn't expect at all."
+project: "GPU Inference Optimization"
 ---
 
 **TL;DR:** the kernel moves almost exactly half the HBM traffic naive does (1.01GB vs 2.10GB, measured, not estimated) and both implementations sit deep in the memory-bound region of the roofline — so far below the compute ceiling that raw arithmetic was never the constraint. But the Triton kernel is still slower in wall-clock time, and Nsight Compute explains why with a specific number: occupancy is capped at 25%, not failing to reach some higher figure — it's sitting exactly at its ceiling, set by register usage. I tested the obvious fix (cap registers, force more concurrent work) and it didn't help — a genuinely useful negative result. Then I extended the same memory-bound story into autoregressive decode with a KV-cache, added an int8 variant, and got a result that inverted my expectation entirely: the compressed cache uses *more* peak memory, not less.

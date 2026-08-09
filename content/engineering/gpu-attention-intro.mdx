@@ -1,0 +1,40 @@
+---
+title: "Why attention is memory-bound, and what I built to prove it"
+date: "2026-07-17"
+excerpt: "Starting a FlashAttention-style kernel in Triton from scratch — the idea, the hardware reality behind it, and why beating PyTorch was never the goal."
+---
+
+I started this project because I wanted to understand GPU inference at the level people who actually build inference systems operate at — not the PyTorch API surface, but what happens to memory and compute on the chip when a transformer runs attention.
+
+## The problem: attention looks compute-heavy and isn't
+
+Attention computes `softmax(QKᵀ/√d) @ V`. Written naively, that's two matrix multiplies and a softmax — it looks like a compute problem. It mostly isn't. The naive implementation materializes the full (N, N) score matrix — every query's similarity to every key — in HBM, the GPU's main memory, before it can even start the softmax. For a sequence of length N that's O(N²) memory traffic for an operation with only O(N²·d) FLOPs to justify it, and d (head_dim, typically 64–128) is small. Moving that much data ends up costing more than the arithmetic itself.
+
+GPUs have a memory hierarchy: HBM is large (tens of GB) but slow; SRAM — on-chip registers and shared memory — is tiny (tens of KB per compute core) but roughly 100x faster. The entire craft of writing a fast attention kernel is keeping as much work as possible in SRAM and touching HBM as little as possible.
+
+## The idea: FlashAttention's tiling trick
+
+FlashAttention's fix: tile Q, K, and V into blocks, stream the K/V blocks through on-chip SRAM one at a time instead of loading everything at once, and keep a running max and running sum per row as you go — *online softmax* — so the output still normalizes correctly without ever holding the full N×N matrix anywhere:
+
+```
+for each query block Q_i:
+    m_i = -inf; l_i = 0; acc = 0
+    for each key/value block (K_j, V_j):
+        S_ij  = (Q_i @ K_j^T) / sqrt(d)        # small tile, stays on-chip
+        m_new = max(m_i, rowmax(S_ij))
+        P_ij  = exp(S_ij - m_new)
+        l_i   = exp(m_i - m_new) * l_i + rowsum(P_ij)
+        acc   = exp(m_i - m_new) * acc + P_ij @ V_j
+        m_i   = m_new
+    O_i = acc / l_i                             # normalize once, at the end
+```
+
+That turns O(N²) memory traffic into O(N). The claim is simple to state and easy to get wrong in practice, which is the actual reason to build it rather than just read about it.
+
+## What I'm actually building
+
+A forward-only fused attention kernel (inference only, no backward pass) written in Triton, benchmarked against a naive PyTorch baseline and against `torch.nn.functional.scaled_dot_product_attention` (SDPA — PyTorch's own optimized implementation, backed by FlashAttention-2/3), then profiled with Nsight Compute so the result is explained in hardware terms rather than asserted. Five phases: get it correct, benchmark it, profile it, extend it into KV-cache decode, write it up. It all runs on a single rented Tesla T4 — my own machine has no CUDA GPU, so everything past "write the code" happens on borrowed hardware.
+
+One thing decided up front: I'm not trying to beat SDPA. It's backed by FlashAttention-2/3 and is about as optimized as attention gets on this hardware. The point is the analysis — build something correct, measure it honestly, and use a profiler to explain exactly where the time and memory actually go.
+
+More notes as the phases progress.

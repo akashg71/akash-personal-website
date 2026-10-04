@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { splitFrontmatter } from '@/lib/frontmatter'
 import { mutate } from './mutate'
+import type { RichEditorHandle } from './RichEditor'
 
 const RichEditor = dynamic(() => import('./RichEditor'), {
   ssr: false,
@@ -51,16 +52,24 @@ export default function NotesView({
   const [baseline, setBaseline] = useState(content)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const rich = useRef<RichEditorHandle | null>(null)
   const editing = mode !== 'view'
   const dirty = editing && draft !== baseline
 
+  // The rich editor updates `draft` only once typing pauses for 200 ms, and an
+  // unmount drops that update: read the text from the editor itself, so a quick
+  // ⌘S or tab switch keeps the last keystrokes.
+  const current = useCallback(() => rich.current?.markdown() ?? draft, [draft])
+
   // Don't lose an unsaved edit to a stray back-swipe or tab close.
   useEffect(() => {
-    if (!dirty) return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    if (!editing) return
+    const warn = (e: BeforeUnloadEvent) => {
+      if (current() !== baseline) e.preventDefault()
+    }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+  }, [editing, current, baseline])
 
   function open(focus = false) {
     setBase({ content, sha })
@@ -79,28 +88,32 @@ export default function NotesView({
   }, [startEditing])
 
   function cancel() {
-    if (dirty && !window.confirm('Discard your changes?')) return
+    if (current() !== baseline && !window.confirm('Discard your changes?')) return
     setMode('view')
   }
 
   function switchTo(next: Mode) {
-    if (next === 'rich') setRichSeed(draft) // remount the rich editor on the source edits
+    if (next === mode) return
+    const text = current()
+    setDraft(text)
+    if (next === 'rich') setRichSeed(text) // remount the rich editor on the source edits
     setMode(next)
   }
 
   const save = useCallback(() => {
-    if (!dirty) return setMode('view')
+    const text = current()
+    if (text === baseline) return setMode('view')
     setPending(true)
     setError(null)
-    mutate('/api/notes/save', { file, content: draft, sha: base.sha })
+    mutate('/api/notes/save', { file, content: text, sha: base.sha })
       .then(() => {
-        setBaseline(draft)
+        setBaseline(text)
         setMode('view')
         router.refresh()
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
-  }, [dirty, draft, base.sha, file, router])
+  }, [current, baseline, base.sha, file, router])
 
   useEffect(() => {
     if (!editing) return
@@ -159,6 +172,7 @@ export default function NotesView({
         <div className="-mx-2 rounded-md border border-stone-200 bg-white">
           <RichEditor
             initial={richSeed}
+            handle={rich}
             autoFocus={focusEditor}
             onReady={md => {
               // First mount on an untouched file: adopt the editor's serialization as

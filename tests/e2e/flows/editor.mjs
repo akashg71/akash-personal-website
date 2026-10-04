@@ -101,6 +101,12 @@ async function caretAtEnd(page) {
 // ProseMirror garbles zero-delay typing.
 const typeSlowly = (page, text) => page.keyboard.type(text, { delay: 35 })
 
+async function pressSave(page) {
+  await page.keyboard.down('Meta')
+  await page.keyboard.press('s')
+  await page.keyboard.up('Meta')
+}
+
 flow('rich editor: typing a paragraph and a list saves the expected markdown', {
   seed: { 'Physics/Mechanics.md': "# Mechanics\n\nNewton's laws.\n" },
 }, async page => {
@@ -119,6 +125,27 @@ flow('rich editor: typing a paragraph and a list saves the expected markdown', {
   await waitFor(page, '::-p-text(Momentum is conserved.)')
   assert.equal(await fake.read('Physics/Mechanics.md'), "# Mechanics\n\nNewton's laws.\n\nMomentum is conserved.\n\n- first\n- second\n")
   assert.equal((await fake.state()).commits[0].message, 'edit: Physics/Mechanics.md')
+})
+
+flow('rich editor: ⌘S straight after typing saves the last keystrokes', {
+  seed: { 'Physics/Mechanics.md': "# Mechanics\n\nNewton's laws.\n" },
+}, async page => {
+  await editNote(page, 'Physics/Mechanics.md')
+  await caretAtEnd(page)
+  // No pause: the editor reports a change only once typing stops for 200 ms.
+  await typeSlowly(page, ' Then energy.')
+  assert.equal((await api(page, 'save', () => pressSave(page))).status, 200)
+  assert.equal(await fake.read('Physics/Mechanics.md'), "# Mechanics\n\nNewton's laws. Then energy.\n")
+})
+
+flow('rich editor: switching to source straight after typing keeps the last keystrokes', {
+  seed: { 'Physics/Mechanics.md': "# Mechanics\n\nNewton's laws.\n" },
+}, async page => {
+  await editNote(page, 'Physics/Mechanics.md')
+  await caretAtEnd(page)
+  await typeSlowly(page, ' Then energy.')
+  await click(page, button('source'))
+  assert.equal(await page.$eval('textarea', el => el.value), "# Mechanics\n\nNewton's laws. Then energy.\n")
 })
 
 flow('rich editor: saving a feature-dense note changes only what is documented', {
@@ -161,12 +188,7 @@ flow('source tab: edit the raw markdown and save with ⌘S', { seed: { 'Projects
   await click(page, button('source'))
   await page.$eval('textarea', el => el.setSelectionRange(el.value.length, el.value.length))
   await page.type('textarea', '- [ ] Offline reading\n')
-  const res = await api(page, 'save', async () => {
-    await page.keyboard.down('Meta')
-    await page.keyboard.press('s')
-    await page.keyboard.up('Meta')
-  })
-  assert.equal(res.status, 200)
+  assert.equal((await api(page, 'save', () => pressSave(page))).status, 200)
   await waitFor(page, 'input[type=checkbox][aria-label="Offline reading"]')
   assert.equal(await fake.read('Projects/Website.md'), `${WEBSITE}- [ ] Offline reading\n`)
 })

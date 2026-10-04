@@ -392,10 +392,11 @@ export function renameHeading(content: string, ref: HeadingRef, text: string): s
     const found = locateHeading(c, ref)
     if (!found) return null
     const { kids, lines, hi } = found
-    const k = kids[hi].position!.start.line - 1
+    const { start, end } = kids[hi].position!
+    const k = start.line - 1
     const cr = lines[k].endsWith('\r') ? '\r' : ''
     lines[k] = `${'#'.repeat((kids[hi] as Heading).depth)} ${text}${cr}`
-    if (kids[hi].position!.end.line - 1 > k) lines.splice(k + 1, 1) // setext "===" underline: now ATX
+    lines.splice(k + 1, end.line - start.line) // setext: its other lines and "===" underline go, it is ATX now
     return lines.join('\n')
   })
 }

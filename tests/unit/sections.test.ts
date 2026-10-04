@@ -130,6 +130,7 @@ describe('renameHeading', () => {
   test('turns a setext heading into ATX of the same level', () => {
     assert.equal(eachEol('Old\n===\nx\n', rename(1, 'Old')), '# New\nx\n')
     assert.equal(eachEol('Old\n---\nx\n', rename(1, 'Old')), '## New\nx\n')
+    assert.equal(eachEol('Two line\nheading\n---\nx\n', rename(1, 'Two line')), '## New\nx\n')
     assert.equal(eachEol('x\n\nOld\n---', rename(3, 'Old')), 'x\n\n## New')
   })
 

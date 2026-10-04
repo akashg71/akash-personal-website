@@ -260,7 +260,8 @@ function matchRoute(method, pathname) {
   return null
 }
 
-const utf8 = content => (content === null ? null : Buffer.from(content, 'utf8'))
+// A file's content: text, or { base64 } for binary (an image).
+const bytesOf = content => (content === null ? null : typeof content === 'string' ? Buffer.from(content, 'utf8') : Buffer.from(content.base64, 'base64'))
 
 export class FakeGitHub {
   repo = new Repo()
@@ -276,18 +277,18 @@ export class FakeGitHub {
     this.token = token
   }
 
-  /** Replace the whole repo with `files` ({ path: text }) in one commit; clears log and faults. */
+  /** Replace the whole repo with `files` ({ path: text | { base64 } }) in one commit; clears log and faults. */
   reset(files = {}) {
     this.repo = new Repo()
     this.requests = []
     this.faults = []
-    const changes = Object.entries(files).map(([p, text]) => [p, utf8(text)])
+    const changes = Object.entries(files).map(([p, content]) => [p, bytesOf(content)])
     if (changes.length) this.repo.commit(changes, 'seed')
   }
 
-  /** A commit from "another device": { path: text | null }. */
+  /** A commit from "another device": { path: text | { base64 } | null }. */
   write(files, message = 'edit from another device') {
-    return this.repo.commit(Object.entries(files).map(([p, text]) => [p, utf8(text)]), message)
+    return this.repo.commit(Object.entries(files).map(([p, content]) => [p, bytesOf(content)]), message)
   }
 
   /**
@@ -408,7 +409,7 @@ const control = {
   'POST /write': (fake, body) => ({ sha: fake.write(body.files, body.message).sha }),
   'GET /file': (fake, _, query) => {
     const file = fake.repo.files.get(query.get('path'))
-    return file ? { content: file.bytes.toString('utf8'), sha: file.sha } : { status: 404, body: { error: 'no such file' } }
+    return file ? { content: file.bytes.toString('utf8'), base64: file.bytes.toString('base64'), sha: file.sha } : { status: 404, body: { error: 'no such file' } }
   },
   'GET /state': fake => ({
     head: fake.repo.head?.sha ?? null,

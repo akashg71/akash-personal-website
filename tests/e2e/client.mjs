@@ -14,12 +14,17 @@ export function fakeClient(base) {
   }
 
   return {
-    /** Replace the repo with { path: text } in one "seed" commit; clears the request log and faults. */
+    /** Replace the repo with { path: text | { base64 } } in one "seed" commit; clears the request log and faults. */
     reset: files => call('POST', '/reset', { files }),
     /** Commit { path: text | null } as if from another device. Returns { sha }. */
     write: (files, message) => call('POST', '/write', { files, message }),
     /** Current text of a file, or null if it doesn't exist. */
     read: async path => (await call('GET', `/file?path=${encodeURIComponent(path)}`))?.content ?? null,
+    /** A file's bytes (an image), or null if it doesn't exist. */
+    bytes: async path => {
+      const file = await call('GET', `/file?path=${encodeURIComponent(path)}`)
+      return file ? Buffer.from(file.base64, 'base64') : null
+    },
     /** { head, paths, commits: [{ sha, message, paths }] } — commits newest first. */
     state: () => call('GET', '/state'),
     /** { requests: [{ seq, method, route, path, url, status, pid }], counts: { route: n } } */

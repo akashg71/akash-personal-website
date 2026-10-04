@@ -3,22 +3,23 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fakeClient } from '../client.mjs'
-import { PROTECTED_ROUTES } from '../routes.mjs'
+import { describeRoute, PROTECTED_ROUTES } from '../routes.mjs'
 
 const { E2E_BASE_URL: BASE_URL, E2E_FAKE_URL, E2E_PASSWORD: PASSWORD } = process.env
 const fake = fakeClient(E2E_FAKE_URL)
 
-test('every write route answers 401 without a valid session', async () => {
+test('every API route but login and logout answers 401 without a valid session', async () => {
   await fake.reset({})
-  assert.ok(PROTECTED_ROUTES.length >= 8, PROTECTED_ROUTES.join())
+  assert.ok(PROTECTED_ROUTES.length >= 8, PROTECTED_ROUTES.map(describeRoute).join())
   for (const cookie of [null, `notes_session=${Date.now() + 60_000}.forged`]) {
     for (const route of PROTECTED_ROUTES) {
-      const res = await fetch(`${BASE_URL}/api/notes/${route}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
-        body: '{}',
+      const post = route.method === 'POST'
+      const res = await fetch(`${BASE_URL}/api/notes/${route.path}`, {
+        method: route.method,
+        headers: { ...(post ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) },
+        body: post ? '{}' : undefined,
       })
-      assert.equal(res.status, 401, `${route} with ${cookie ?? 'no cookie'}`)
+      assert.equal(res.status, 401, `${describeRoute(route)} with ${cookie ?? 'no cookie'}`)
     }
   }
   assert.deepEqual((await fake.requests()).requests, [], 'nothing should reach GitHub')

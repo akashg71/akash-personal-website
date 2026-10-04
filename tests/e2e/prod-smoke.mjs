@@ -6,7 +6,7 @@
 //   sign in, write test data only under "Claude Test/", delete it, and check
 //   todo.md and progress.md are byte-identical (same blob sha) before and after.
 import { existsSync, readFileSync } from 'node:fs'
-import { PROTECTED_ROUTES } from './routes.mjs'
+import { describeRoute, PROTECTED_ROUTES } from './routes.mjs'
 
 const BASE_URL = (process.env.BASE_URL ?? 'https://akashestra.com').replace(/\/$/, '')
 // Vercel's bot protection may answer 403 to unfamiliar clients, so look like desktop Chrome.
@@ -60,12 +60,13 @@ await check('GET /notes shows the login form', async () => {
   expect(html.includes('name="password"') && html.includes('action="/api/notes/login"'), 'no login form in the page')
 })
 
-await check(`POST to each write route without a session → 401 (${PROTECTED_ROUTES.join(', ')})`, async () => {
+await check(`each API route without a session → 401 (${PROTECTED_ROUTES.map(describeRoute).join(', ')})`, async () => {
   const wrong = []
   for (const route of PROTECTED_ROUTES) {
-    const res = await retrying(() => post(`/api/notes/${route}`, {})).catch(err => ({ status: err.cause?.code ?? err.message }))
+    const url = `/api/notes/${route.path}`
+    const res = await retrying(() => (route.method === 'POST' ? post(url, {}) : site(url))).catch(err => ({ status: err.cause?.code ?? err.message }))
     await res.arrayBuffer?.() // an unread body pins its socket
-    if (res.status !== 401) wrong.push(`${route}: ${res.status}`)
+    if (res.status !== 401) wrong.push(`${describeRoute(route)}: ${res.status}`)
   }
   expect(!wrong.length, wrong.join(', '))
 })

@@ -388,14 +388,16 @@ export function renameTask(content: string, line: number, raw: string, text: str
 
 /** Replace a section heading's text, keeping its level. null if gone/ambiguous. */
 export function renameHeading(content: string, ref: HeadingRef, text: string): string | null {
-  const found = locateHeading(content, ref)
-  if (!found) return null
-  const { kids, lines, hi } = found
-  const k = kids[hi].position!.start.line - 1
-  const cr = lines[k].endsWith('\r') ? '\r' : ''
-  lines[k] = `${'#'.repeat((kids[hi] as Heading).depth)} ${text}${cr}`
-  if (kids[hi].position!.end.line - 1 > k) lines.splice(k + 1, 1) // setext "===" underline: now ATX
-  return lines.join('\n')
+  return withFinalNewline(content, c => {
+    const found = locateHeading(c, ref)
+    if (!found) return null
+    const { kids, lines, hi } = found
+    const k = kids[hi].position!.start.line - 1
+    const cr = lines[k].endsWith('\r') ? '\r' : ''
+    lines[k] = `${'#'.repeat((kids[hi] as Heading).depth)} ${text}${cr}`
+    if (kids[hi].position!.end.line - 1 > k) lines.splice(k + 1, 1) // setext "===" underline: now ATX
+    return lines.join('\n')
+  })
 }
 
 /**
@@ -476,8 +478,10 @@ function locateHeading(content: string, ref: HeadingRef) {
 
 /** Append "- [ ] text" to the section under `heading`. null if the heading is gone/ambiguous. */
 export function addToSection(content: string, heading: HeadingRef, text: string): string | null {
-  const found = locateHeading(content, heading)
-  return found && insertTask(content, found.kids, found.hi, text)
+  return withFinalNewline(content, c => {
+    const found = locateHeading(c, heading)
+    return found && insertTask(c, found.kids, found.hi, text)
+  })
 }
 
 /** Remove lines [start, end) (0-based) and tidy the seam so no blank-line pile-up is left behind. */
@@ -498,13 +502,16 @@ function removeLines(lines: string[], start: number, end: number) {
  * sub-sections — up to the next heading of the same or higher level.
  */
 export function deleteSection(content: string, heading: HeadingRef): string | null {
-  const found = locateHeading(content, heading)
-  if (!found) return null
-  const { kids, heads, lines, hi } = found
-  const depth = (kids[hi] as Heading).depth
-  const next = heads.find(i => i > hi && (kids[i] as Heading).depth <= depth)
-  const end = next === undefined ? lines.length : kids[next].position!.start.line - 1
-  return removeLines(lines, kids[hi].position!.start.line - 1, end)
+  return withFinalNewline(content, c => {
+    const found = locateHeading(c, heading)
+    if (!found) return null
+    const { kids, heads, lines, hi } = found
+    const depth = (kids[hi] as Heading).depth
+    const next = heads.find(i => i > hi && (kids[i] as Heading).depth <= depth)
+    // The last section runs to the end of the file, but not into the '' after its final newline.
+    const end = next === undefined ? lines.length - 1 : kids[next].position!.start.line - 1
+    return removeLines(lines, kids[hi].position!.start.line - 1, end)
+  })
 }
 
 function walk(node: Nodes, visit: (n: Nodes) => void) {

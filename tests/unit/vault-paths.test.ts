@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isFolderPath, isNotePath, renameTask, taskSource, taskText, toNotePath } from '@/lib/notes'
+import { isFolderPath, isNotePath, lastReviewed, renameTask, stampReview, taskSource, taskText, toNotePath } from '@/lib/notes'
 import { encodePath, ISO_DATE_RE, journalPath, noteHref, noteName } from '@/lib/paths'
 import { eachEol } from './helpers'
 
@@ -98,5 +98,39 @@ describe('renameTask', () => {
     const code = '```md\n# comment\n- [ ] a\n```\n'
     assert.equal(eachEol(code, rename(3, '- [ ] a')), null)
     assert.equal(eachEol(`${code}- [ ] a\n`, rename(1, '- [ ] a')), `${code}- [ ] new text\n`)
+  })
+})
+
+describe('review stamp', () => {
+  const stamp = (c: string) => stampReview(c, '2026-10-04')
+
+  test('lastReviewed reads the stamp line', () => {
+    assert.equal(lastReviewed('# Todo\n\nLast reviewed: 2026-09-27\n'), '2026-09-27')
+    assert.equal(lastReviewed('# Todo\r\n\r\nlast reviewed:2026-09-27  \r\n'), '2026-09-27')
+    assert.equal(lastReviewed('# Todo\n\nLast reviewed: soon\n'), null)
+    assert.equal(lastReviewed(''), null)
+  })
+
+  test('stampReview replaces the stamp, or is null when already stamped that day', () => {
+    assert.equal(eachEol('# Todo\n\nLast reviewed: 2026-09-27\n\n## A\n', stamp), '# Todo\n\nLast reviewed: 2026-10-04\n\n## A\n')
+    assert.equal(eachEol('# Todo\n\nLast reviewed: 2026-09-27', stamp), '# Todo\n\nLast reviewed: 2026-10-04')
+    assert.equal(eachEol('# Todo\n\nLast reviewed: 2026-10-04\n', stamp), null)
+  })
+
+  test('stampReview adds the stamp under the H1', () => {
+    assert.equal(eachEol('# Todo\n\n## A\n', stamp), '# Todo\n\nLast reviewed: 2026-10-04\n\n## A\n')
+    assert.equal(eachEol('# Todo\n## A\n', stamp), '# Todo\n\nLast reviewed: 2026-10-04\n\n## A\n')
+    assert.equal(eachEol('Todo\n====\n\n## A\n', stamp), 'Todo\n====\n\nLast reviewed: 2026-10-04\n\n## A\n')
+    assert.equal(eachEol('intro\n# Todo', stamp), 'intro\n# Todo\n\nLast reviewed: 2026-10-04')
+  })
+
+  test('stampReview puts the stamp first when there is no H1', () => {
+    assert.equal(eachEol('## A\n- [ ] x\n', stamp), 'Last reviewed: 2026-10-04\n\n## A\n- [ ] x\n')
+    assert.equal(stamp(''), 'Last reviewed: 2026-10-04\n\n')
+  })
+
+  test('a "# comment" in a fenced code block is not the H1', () => {
+    const md = '## A\n\n```sh\n# comment\n```\n'
+    assert.equal(eachEol(md, stamp), `Last reviewed: 2026-10-04\n\n${md}`)
   })
 })

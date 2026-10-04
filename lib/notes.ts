@@ -566,20 +566,24 @@ export function lastReviewed(content: string): string | null {
 
 /** Set "Last reviewed: <date>", replacing the existing stamp or inserting one under the H1. */
 export function stampReview(content: string, date: string): string | null {
-  const eol = eolOf(content)
-  const stamp = `Last reviewed: ${date}${eol}`
-  const lines = content.split('\n')
+  return withFinalNewline(content, c => {
+    const eol = eolOf(c)
+    const stamp = `Last reviewed: ${date}${eol}`
+    const lines = c.split('\n')
 
-  const existing = lines.findIndex(l => REVIEW_LINE_RE.test(l.trimEnd()))
-  if (existing !== -1) {
-    if (lines[existing].trimEnd().endsWith(date)) return null // already stamped today
-    lines[existing] = stamp
+    const existing = lines.findIndex(l => REVIEW_LINE_RE.test(l.trimEnd()))
+    if (existing !== -1) {
+      if (lines[existing].trimEnd().endsWith(date)) return null // already stamped today
+      lines[existing] = stamp
+      return lines.join('\n')
+    }
+
+    // The H1 comes from the parse tree: a "# comment" in a code block isn't
+    // one, a setext H1 is. Its 1-based end line indexes the line below it.
+    const below = parseMarkdown(c).children.find(n => n.type === 'heading' && n.depth === 1)?.position?.end.line
+    if (below === undefined) return `${stamp}\n${eol}\n${c}`
+    const after = lines[below]?.trim() === '' ? [eol, stamp] : [eol, stamp, eol]
+    lines.splice(below, 0, ...after)
     return lines.join('\n')
-  }
-
-  const h1 = lines.findIndex(l => /^#[ \t]/.test(l))
-  if (h1 === -1) return `${stamp}\n${eol}\n${content}`
-  const after = lines[h1 + 1]?.trim() === '' ? [eol, stamp] : [eol, stamp, eol]
-  lines.splice(h1 + 1, 0, ...after)
-  return lines.join('\n')
+  })
 }

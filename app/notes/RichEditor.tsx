@@ -4,9 +4,9 @@
 // CodeMirror code blocks, and the Vue runtime Crepe uses for its menus) never
 // ships with the normal /notes page — only when you tap "edit".
 import { useEffect, useRef } from 'react'
-import { Crepe } from '@milkdown/crepe'
-import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { editorViewCtx } from '@milkdown/kit/core'
 import { Selection } from '@milkdown/kit/prose/state'
+import { createEditor } from './editor/configure'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import './editor.css'
@@ -32,23 +32,7 @@ export default function RichEditor({
 
   useEffect(() => {
     let ready = false
-    const crepe = new Crepe({
-      root: root.current,
-      defaultValue: initial,
-      features: {
-        [Crepe.Feature.TopBar]: true, // fixed formatting bar: selection toolbars are fiddly on phones
-        // remark-math would parse "$30 … $2,400" in finance notes as an inline formula and
-        // rewrite it on save. Off until there's a reason to write maths here.
-        [Crepe.Feature.Latex]: false,
-        [Crepe.Feature.ImageBlock]: false, // no image storage yet
-        [Crepe.Feature.AI]: false,
-      },
-    })
-    // remark-stringify defaults to "*" bullets and "***" rules, so every save would
-    // rewrite each "- [ ]" in the file. Match how the files are actually written.
-    crepe.editor.config(ctx => {
-      ctx.update(remarkStringifyOptionsCtx, prev => ({ ...prev, bullet: '-' as const, rule: '-' as const }))
-    })
+    const crepe = createEditor(root.current, initial)
     crepe.on(api =>
       api.markdownUpdated((_ctx, markdown) => {
         if (ready) callbacks.current.onChange(markdown)

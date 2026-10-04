@@ -188,9 +188,31 @@ flow('a save that conflicts with another device is refused and the draft kept', 
   assert.equal(await fake.read('Projects/Website.md'), phone)
 })
 
+const IMAGES = `# Images
+
+Text ![i](../attachments/i.png) more.
+
+![](../attachments/untitled.png)
+
+![A diagram](../attachments/diagram.png "Attention")
+
+Last line.
+`
+
+flow('rich editor keeps images: untitled ones, alt text and titles', {
+  seed: { 'Images.md': IMAGES },
+  // The editor shows the images, and the test vault has no image files.
+  allow: ['i', 'untitled', 'diagram'].map(name => [404, `/attachments/${name}.png`]),
+}, async page => {
+  await editNote(page, 'Images.md')
+  await caretAtEnd(page)
+  await typeSlowly(page, ' Saved.')
+  assert.equal((await api(page, 'save', () => click(page, button('save')))).status, 200)
+  assert.equal(await fake.read('Images.md'), IMAGES.replace('Last line.', 'Last line. Saved.'))
+})
+
 // Rewrites found while building this suite (2026-10-04); not fixed yet. Each
 // becomes a flow above once the editor keeps that construct byte-for-byte.
-test.todo('rich editor keeps images: today it drops ![alt](url) on save and logs a RangeError')
 test.todo('rich editor keeps [[wiki links]] and [brackets]: today they become \\[\\[…]] (C3.0)')
 test.todo('rich editor keeps bare URLs, "R&D" and "5 * 3": today <url>, R\\&D and 5 \\* 3')
 test.todo('rich editor keeps "* " / "1)" markers, setext headings and two-space line breaks')

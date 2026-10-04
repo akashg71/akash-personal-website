@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "check": "tsc --noEmit && npm run lint"
   },
   "dependencies": {
     "@milkdown/crepe": "^7.22.2",
@@ -21,7 +22,6 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@tailwindcss/typography": "^0.5",
     "@types/mdast": "^4.0.4",

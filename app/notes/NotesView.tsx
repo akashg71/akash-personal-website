@@ -35,8 +35,10 @@ export default function NotesView({
   children: ReactNode
 }) {
   const router = useRouter()
-  const [mode, setMode] = useState<Mode>('view')
-  const [focusEditor, setFocusEditor] = useState(false)
+  // ?edit=1 → straight into the editor with the cursor ready. Set as the initial
+  // state rather than by an effect, so there's no flash of the view first.
+  const [mode, setMode] = useState<Mode>(startEditing ? 'rich' : 'view')
+  const [focusEditor, setFocusEditor] = useState(startEditing)
   // Nothing but the "# Title" line → show a "Start writing" prompt instead.
   const empty = content.replace(/^#[^\n]*\n?/, '').trim() === ''
   const [draft, setDraft] = useState(content)
@@ -69,15 +71,11 @@ export default function NotesView({
     setMode('rich')
   }
 
-  // ?edit=1 → straight into the editor, then drop the flag from the URL so a
-  // reload or the refresh after saving doesn't reopen it.
+  // Drop ?edit=1 from the URL so a reload or the refresh after saving doesn't
+  // reopen the editor.
   useEffect(() => {
-    if (!startEditing) return
-    open(true)
-    window.history.replaceState(null, '', window.location.pathname)
-    // run once on arrival
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (startEditing) window.history.replaceState(null, '', window.location.pathname)
+  }, [startEditing])
 
   function cancel() {
     if (dirty && !window.confirm('Discard your changes?')) return

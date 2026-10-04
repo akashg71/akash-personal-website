@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { noteHref, noteName, rankNotes } from '@/lib/paths'
 import { mutate } from './mutate'
@@ -36,12 +36,24 @@ export default function QuickSwitcher({
   const canCreate = q.length > 0 && !exact
   const rows = results.length + (canCreate ? 1 : 0)
 
+  // Every open starts fresh: empty query, first row, no stale error.
+  function show() {
+    if (open) return
+    setQuery('')
+    setActive(0)
+    setError(null)
+    setOpen(true)
+  }
+
+  // An Effect Event, so the ⌘K listener always sees the current `open`.
+  const toggle = useEffectEvent(() => (open ? setOpen(false) : show()))
+
   useEffect(() => {
     if (!shortcut) return
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setOpen(o => !o)
+        toggle()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -49,14 +61,8 @@ export default function QuickSwitcher({
   }, [shortcut])
 
   useEffect(() => {
-    if (!open) return
-    setQuery('')
-    setActive(0)
-    setError(null)
-    input.current?.focus()
+    if (open) input.current?.focus()
   }, [open])
-
-  useEffect(() => setActive(0), [query])
 
   // keep the highlighted row visible while arrowing through a long list
   useEffect(() => {
@@ -84,7 +90,7 @@ export default function QuickSwitcher({
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={show}
         className={`flex items-center justify-between gap-2 h-11 px-3 rounded-md border border-stone-200 bg-white text-sm text-stone-500 hover:border-stone-300 ${className}`}
       >
         <span>⌕ search</span>
@@ -101,7 +107,10 @@ export default function QuickSwitcher({
             <input
               ref={input}
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e => {
+                setQuery(e.target.value)
+                setActive(0) // a new query highlights the best match again
+              }}
               onKeyDown={e => {
                 if (e.key === 'Escape') setOpen(false)
                 else if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, rows - 1)) }

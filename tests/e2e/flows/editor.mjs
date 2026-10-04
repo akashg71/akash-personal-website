@@ -51,7 +51,7 @@ Last line.
 const documented = md => md.replace(/(?<=\w)_(?=\w)/g, '\\_')
 
 const button = label => `::-p-xpath(//button[normalize-space()="${label}"])`
-const writes = async () => (await fake.requests()).requests.filter(r => r.method !== 'GET')
+const writes = async () => (await fake.requests()).requests.filter(r => r.method !== 'GET' && r.route !== 'graphql') // GraphQL only reads
 
 /**
  * Open `path` straight in the rich editor (?edit=1, as new notes do). The app

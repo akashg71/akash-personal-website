@@ -69,7 +69,7 @@ flow('today creates Journal/<date>.md once, then just opens it', { seed }, async
   await click(page, button('today'))
   await waitForNote(page, path)
   const { requests } = await fake.requests()
-  assert.deepEqual(requests.filter(r => r.method !== 'GET'), [], 'second press must not write')
+  assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.route !== 'graphql'), [], 'second press must not write')
   assert.equal((await fake.state()).commits.filter(c => c.paths.includes(path)).length, 1)
 })
 

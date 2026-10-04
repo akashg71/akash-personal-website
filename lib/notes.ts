@@ -107,6 +107,9 @@ export class GitHubError extends Error {
 
 export { getTokenExpiration } from './notes/github'
 import { ghFetch } from './notes/github'
+// Pages read the vault from the snapshot; every write below is applied to it.
+export { currentSnapshot, lastUpdated, readNote, warmSnapshot } from './notes/snapshot'
+import { applyWrite } from './notes/snapshot'
 
 async function gh(path: string, init: { method?: string; body?: string } = {}) {
   let res: Response
@@ -175,10 +178,11 @@ export async function listVault(): Promise<{ notes: string[]; folders: string[] 
 export async function deleteNoteFile(file: NotesFile): Promise<Response> {
   try {
     const { sha } = await getNotesFile(file)
-    await gh(`/contents/${encodePath(file)}`, {
+    const res = await gh(`/contents/${encodePath(file)}`, {
       method: 'DELETE',
       body: JSON.stringify({ message: `delete note: ${file}`, sha }),
     })
+    applyWrite(file, null, res)
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json(
@@ -190,7 +194,7 @@ export async function deleteNoteFile(file: NotesFile): Promise<Response> {
 
 async function putNotesFile(file: NotesFile, content: string, sha: string, message: string) {
   // PUT with a stale sha → 409. That's our optimistic-concurrency check.
-  return gh(`/contents/${encodePath(file)}`, {
+  const res = await gh(`/contents/${encodePath(file)}`, {
     method: 'PUT',
     body: JSON.stringify({
       message,
@@ -198,6 +202,7 @@ async function putNotesFile(file: NotesFile, content: string, sha: string, messa
       sha,
     }),
   })
+  applyWrite(file, content, res)
 }
 
 // ── Read-modify-write ───────────────────────────────────────
@@ -267,10 +272,11 @@ export async function saveNotesFile(file: NotesFile, content: string, sha: strin
  */
 export async function createNotesFile(file: NotesFile, content: string, extra: object = {}): Promise<Response> {
   try {
-    await gh(`/contents/${encodePath(file)}`, {
+    const res = await gh(`/contents/${encodePath(file)}`, {
       method: 'PUT',
       body: JSON.stringify({ message: `create ${file}`, content: Buffer.from(content, 'utf8').toString('base64') }),
     })
+    applyWrite(file, content, res)
     return Response.json({ ok: true, ...extra })
   } catch (err) {
     // GitHub answers 422 ("sha wasn't supplied") when the file already exists.

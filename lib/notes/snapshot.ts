@@ -220,14 +220,16 @@ export type ContentsWrite = {
 export function applyWrite(path: string, text: string | null, res: ContentsWrite) {
   state.writes++
   state.inflight = null // a sync already running predates this write
-  const blob = text !== null && res.content && gitBlobSha(text) === res.content.sha ? { ...res.content, text } : null
+  // The write already happened: whatever GitHub answered, this must not throw.
+  const blob = text !== null && res?.content && gitBlobSha(text) === res.content.sha ? { ...res.content, text } : null
+  const date = res?.commit?.committer?.date
   if (blob) {
     state.blobs.set(blob.sha, blob.text)
-    if (res.commit.committer?.date) state.updated.set(`${blob.sha} ${path}`, res.commit.committer.date)
+    if (date) state.updated.set(`${blob.sha} ${path}`, date)
   }
   const snap = state.snap
   if (!snap) return
-  if (!blob || !isNote(path) || res.commit.parents[0]?.sha !== snap.commit) {
+  if (!blob || !isNote(path) || !res.commit?.sha || res.commit.parents?.[0]?.sha !== snap.commit) {
     state.snap = { ...snap, etag: null }
     return
   }

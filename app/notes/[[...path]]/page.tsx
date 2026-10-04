@@ -1,7 +1,9 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { cookies } from 'next/headers'
+import { after } from 'next/server'
 import {
+  currentSnapshot,
   GitHubError,
   getLastUpdated,
   getNotesFile,
@@ -9,11 +11,14 @@ import {
   isNotePath,
   isValidSession,
   lastReviewed,
+  lastUpdated,
   listVault,
   notesConfig,
   noteName,
+  readNote,
   SESSION_COOKIE,
   TODO_FILE,
+  warmSnapshot,
 } from '@/lib/notes'
 import { tokenExpiryWarning, type TokenWarning } from '@/lib/token-expiry'
 import ActionButton from '../ActionButton'
@@ -72,9 +77,20 @@ export default async function NotesPage({
     return <Single authed><Notice>Not a note path: {requested}</Notice></Single>
   }
 
+  // A warm server reads the vault from memory: one conditional request, free
+  // when nothing changed. A cold one reads file by file and fills the snapshot
+  // after answering.
+  const snap = await currentSnapshot()
+  if (!snap) after(warmSnapshot)
+  const loadVault = () => (snap ? Promise.resolve({ notes: snap.notes.map(e => e.path), folders: snap.folders }) : listVault())
+  const noteFetch = (p: string) => {
+    const held = snap && readNote(snap, p)
+    if (held) return Promise.all([held, lastUpdated(p, held.sha, () => getLastUpdated(p))])
+    return Promise.all([getNotesFile(p), getLastUpdated(p)])
+  }
+
   // Fetch the tree and (when the URL names one) the note in parallel.
-  const noteFetch = (p: string) => Promise.all([getNotesFile(p), getLastUpdated(p)])
-  let vault: Awaited<ReturnType<typeof listVault>>
+  let vault: Awaited<ReturnType<typeof loadVault>>
   let note: Awaited<ReturnType<typeof noteFetch>> | null = null
   let noteError: unknown = null
   const settle = (p: Promise<Awaited<ReturnType<typeof noteFetch>>>) =>
@@ -82,9 +98,9 @@ export default async function NotesPage({
 
   try {
     if (requested) {
-      ;[vault] = await Promise.all([listVault(), settle(noteFetch(requested))])
+      ;[vault] = await Promise.all([loadVault(), settle(noteFetch(requested))])
     } else {
-      vault = await listVault()
+      vault = await loadVault()
     }
   } catch (err) {
     return (
@@ -101,7 +117,7 @@ export default async function NotesPage({
   const file = requested || (vault.notes.includes(TODO_FILE) ? TODO_FILE : vault.notes[0] ?? null)
   if (file && !requested) await settle(noteFetch(file))
   const tree = buildTree(vault.notes, vault.folders)
-  // listVault just heard from GitHub, so the token's expiry header is current.
+  // The vault read just heard from GitHub, so the token's expiry is current.
   const tokenWarning = tokenExpiryWarning(getTokenExpiration())
 
   let body: ReactNode

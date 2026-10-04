@@ -1,0 +1,44 @@
+/* /notes dark mode, following the system setting. Tailwind 4 utilities read
+   colours from variables (bg-stone-900 → var(--color-stone-900)), so dark mode
+   remaps the palette the notes UI uses instead of adding dark: classes: no JS
+   and no flash before hydration. It is set on the root so the body background
+   (and iOS overscroll) follows; browsers without :has() stay light.
+   Contrast on the page (#0c0a09): body text 15.7:1, muted stone-400 6.4:1 (and
+   4.9:1 on stone-100 fills), red 7.1:1, stone-300 glyphs and input borders 3.4:1.
+   Only stone, white, amber and red are remapped: a new colour on /notes needs
+   its own line here. */
+@media (prefers-color-scheme: dark) {
+  :root:has(.notes-root) {
+    color-scheme: dark; /* native checkboxes, date pickers, scrollbars */
+    --color-background: #0c0a09;
+    --color-foreground: #e7e5e4;
+    --color-white: #1c1917; /* raised surfaces: inputs, cards, dialogs, editor */
+    --color-stone-50: #0c0a09; /* text on stone-900 buttons */
+    --color-stone-100: #292524; /* hover and selected fills, inline code */
+    --color-stone-200: #3a3532; /* dividers, card borders */
+    --color-stone-300: #6b6560; /* input borders, × and / glyphs: 3:1 */
+    --color-stone-400: #999189; /* muted text */
+    --color-stone-500: #a8a29e;
+    --color-stone-600: #c2bcb7;
+    --color-stone-700: #d6d3d1;
+    --color-stone-800: #e7e5e4; /* body text, checkbox accent */
+    --color-stone-900: #f5f5f4; /* headings, primary buttons */
+    --color-red-700: #f87171;
+    --color-amber-50: #2a2010;
+    --color-amber-200: #6b4a12;
+    --color-amber-900: #fde68a;
+  }
+
+  /* The default (half the text colour) is 4.4:1 on a dark input. */
+  :root:has(.notes-root) ::placeholder {
+    color: var(--color-stone-400);
+  }
+
+  /* Code blocks stay dark, as in light mode, instead of flipping to light.
+     The editor's own blocks are Crepe's (editor.css). */
+  :root:has(.notes-root) pre:not(.milkdown *) {
+    background-color: var(--color-white);
+    color: var(--color-stone-800);
+    border: 1px solid var(--color-stone-200);
+  }
+}

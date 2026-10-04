@@ -117,7 +117,7 @@ export default function NotesView({
   const tab = (m: Mode, label: string) => (
     <button
       onClick={() => switchTo(m)}
-      className={`min-h-9 px-3 text-xs rounded ${mode === m ? 'bg-white shadow-sm text-stone-900' : 'text-stone-500'}`}
+      className={`min-h-9 px-3 text-xs rounded ${mode === m ? 'bg-white dark:bg-stone-200 shadow-sm text-stone-900' : 'text-stone-500'}`}
     >
       {label}
     </button>

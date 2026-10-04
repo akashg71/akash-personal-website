@@ -99,7 +99,7 @@ export default function QuickSwitcher({
 
       {open && (
         <div
-          className="fixed inset-0 z-50 bg-stone-900/20 px-4 pt-[10vh]"
+          className="fixed inset-0 z-50 bg-black/20 dark:bg-black/50 px-4 pt-[10vh]"
           onMouseDown={e => e.target === e.currentTarget && setOpen(false)}
         >
           <div role="dialog" aria-label="Open note" className="mx-auto max-w-lg rounded-lg bg-white shadow-xl border border-stone-200 overflow-hidden">

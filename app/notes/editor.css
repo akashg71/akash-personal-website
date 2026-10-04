@@ -55,3 +55,37 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+
+/* Dark mode, on the same terms as notes.css: every colour Crepe uses, since
+   frame.css only has light ones. Outline also colours list numbers, so it
+   gets text contrast (5.6:1), not just the 3:1 its icons need. */
+@media (prefers-color-scheme: dark) {
+  :root:has(.notes-root) .notes-editor .milkdown {
+    --crepe-color-background: #1c1917;
+    --crepe-color-on-background: #e7e5e4;
+    --crepe-color-primary: #f5f5f4;
+    --crepe-color-surface: #0c0a09;
+    --crepe-color-surface-low: #292524;
+    --crepe-color-on-surface: #e7e5e4;
+    --crepe-color-on-surface-variant: #a8a29e;
+    --crepe-color-outline: #999189;
+    --crepe-color-secondary: #44403c;
+    --crepe-color-on-secondary: #e7e5e4;
+    --crepe-color-inverse: #e7e5e4;
+    --crepe-color-on-inverse: #1c1917;
+    --crepe-color-inline-code: #d6d3d1;
+    --crepe-color-error: #f87171;
+    --crepe-color-hover: #292524;
+    --crepe-color-selected: #44403c;
+    --crepe-color-inline-area: #44403c;
+    --crepe-shadow-1: 0 1px 2px rgb(0 0 0 / 0.6), 0 1px 3px 1px rgb(0 0 0 / 0.4);
+    --crepe-shadow-2: 0 1px 2px rgb(0 0 0 / 0.6), 0 2px 6px 2px rgb(0 0 0 / 0.4);
+  }
+  :root:has(.notes-root) .notes-editor .milkdown .ProseMirror :is(h1, h2, h3, h4) {
+    color: #f5f5f4;
+  }
+  /* "Please enter…" on an empty line: Crepe's 40% text colour is 3:1 here. */
+  :root:has(.notes-root) .notes-editor .milkdown .crepe-placeholder::before {
+    color: #999189;
+  }
+}

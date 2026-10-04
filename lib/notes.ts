@@ -344,23 +344,32 @@ export type PatchResult =
   | { kind: 'not-found' }   // line changed/removed upstream, or ambiguous
 
 /**
- * Set the checkbox for one task to `checked`. `line` is 1-based; `raw` is that
- * source line as the client saw it. If the line moved (edited above on GitHub),
- * fall back to a unique match on the normalized text anywhere in the file.
+ * The task item at `line` (1-based) whose source line is `raw`; if the line
+ * moved (edited above on GitHub), the one task anywhere with that text.
+ * Undefined if gone or ambiguous. Items come from the parse tree, so a
+ * "- [ ]" line inside a fenced code block is text, never a task.
  */
-/** 0-based index of the task line at `line` (1-based) matching `raw`; unique-text fallback; -1 if none. */
-function locateTaskLine(lines: string[], line: number, raw: string) {
+function locateTask(content: string, lines: string[], line: number, raw: string) {
   const want = normalize(raw)
-  const idx = line - 1
-  if (lines[idx] !== undefined && TASK_RE.test(lines[idx]) && normalize(lines[idx]) === want) return idx
-  const matches = lines.flatMap((l, i) => (TASK_RE.test(l) && normalize(l) === want ? [i] : []))
-  return matches.length === 1 ? matches[0] : -1
+  const items: ListItem[] = []
+  walk(parseMarkdown(content), n => {
+    if (n.type === 'listItem' && typeof n.checked === 'boolean' && n.position) items.push(n)
+  })
+  const same = items.filter(n => normalize(lines[n.position!.start.line - 1] ?? '') === want)
+  return same.find(n => n.position!.start.line === line) ?? (same.length === 1 ? same[0] : undefined)
+}
+
+/** 0-based index of the located task's checkbox line; -1 if gone/ambiguous. */
+function locateTaskLine(content: string, lines: string[], line: number, raw: string) {
+  const item = locateTask(content, lines, line, raw)
+  const idx = item ? item.position!.start.line - 1 : -1
+  return idx !== -1 && TASK_RE.test(lines[idx]) ? idx : -1
 }
 
 /** Replace a task's text, keeping its indent, bullet and checkbox state. null if gone/ambiguous. */
 export function renameTask(content: string, line: number, raw: string, text: string): string | null {
   const lines = content.split('\n')
-  const idx = locateTaskLine(lines, line, raw)
+  const idx = locateTaskLine(content, lines, line, raw)
   if (idx === -1) return null
   const cr = lines[idx].endsWith('\r') ? '\r' : ''
   lines[idx] = `${lines[idx].match(TASK_RE)![0]} ${text}${cr}`
@@ -379,9 +388,14 @@ export function renameHeading(content: string, ref: HeadingRef, text: string): s
   return lines.join('\n')
 }
 
+/**
+ * Set the checkbox for one task to `checked`. `line` is 1-based; `raw` is that
+ * source line as the client saw it. If the line moved (edited above on GitHub),
+ * fall back to a unique match on the normalized text anywhere in the file.
+ */
 export function patchTask(content: string, line: number, raw: string, checked: boolean): PatchResult {
   const lines = content.split('\n')
-  const idx = locateTaskLine(lines, line, raw)
+  const idx = locateTaskLine(content, lines, line, raw)
   if (idx === -1) return { kind: 'not-found' }
 
   const current = lines[idx].match(TASK_RE)![2] !== ' '
@@ -490,20 +504,8 @@ function walk(node: Nodes, visit: (n: Nodes) => void) {
 /** Delete one task item, including anything nested under it. null if gone/ambiguous. */
 export function deleteTask(content: string, line: number, raw: string): string | null {
   const lines = content.split('\n')
-  const want = normalize(raw)
-  const items: ListItem[] = []
-  walk(parseMarkdown(content), n => {
-    if (n.type === 'listItem' && typeof n.checked === 'boolean' && n.position) items.push(n)
-  })
-  const same = (n: ListItem) => normalize(lines[n.position!.start.line - 1] ?? '') === want
-
-  let target = items.find(n => n.position!.start.line === line && same(n))
-  if (!target) {
-    const matches = items.filter(same)
-    if (matches.length !== 1) return null
-    target = matches[0]
-  }
-  return removeLines(lines, target.position!.start.line - 1, target.position!.end.line)
+  const item = locateTask(content, lines, line, raw)
+  return item ? removeLines(lines, item.position!.start.line - 1, item.position!.end.line) : null
 }
 
 /** Add "## title" before the Inbox section (Inbox stays last), else at the end. null if it exists. */

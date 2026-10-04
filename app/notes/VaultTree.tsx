@@ -25,10 +25,14 @@ export function buildTree(notes: string[], folders: string[]): TreeNode[] {
     const cut = path.lastIndexOf('/')
     ensure(cut === -1 ? '' : path.slice(0, cut)).push({ type: 'note', name: noteName(path), path })
   }
+  const dated = /^\d{4}-\d{2}-\d{2}/
   const sort = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) =>
-      a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
-    )
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+      // Date-named notes (journal) newest first, so today is at the top of Journal/.
+      if (dated.test(a.name) && dated.test(b.name)) return b.name.localeCompare(a.name)
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    })
     nodes.forEach(n => n.type === 'folder' && sort(n.children))
     return nodes
   }

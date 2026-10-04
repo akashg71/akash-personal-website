@@ -20,6 +20,8 @@ import QuickAdd from '../QuickAdd'
 import ReviewBanner from '../ReviewBanner'
 import InlineAdd from '../InlineAdd'
 import VaultTree, { buildTree } from '../VaultTree'
+import QuickSwitcher from '../QuickSwitcher'
+import TodayButton from '../TodayButton'
 import { renderNote } from '../Markdown'
 
 type Params = Promise<{ path?: string[] }>
@@ -177,10 +179,19 @@ export default async function NotesPage({
     <main className="max-w-5xl mx-auto px-5 pt-6 pb-24 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-10">
       <aside className="hidden md:block pt-1">
         <SignOut />
+        {/* The only instance that owns ⌘K — the phone row below is a second trigger. */}
+        <div className="flex gap-2 mt-2 mb-3">
+          <QuickSwitcher notes={vault.notes} shortcut className="flex-1" />
+          <TodayButton notes={vault.notes} />
+        </div>
         <VaultTree tree={tree} current={file} />
       </aside>
       <section className="min-w-0 max-w-2xl">
-        {/* Phone: the tree lives in a collapsible drawer above the note. */}
+        {/* Phone: search + today always visible; the tree lives in a drawer. */}
+        <div className="md:hidden flex gap-2 mb-2">
+          <QuickSwitcher notes={vault.notes} className="flex-1" />
+          <TodayButton notes={vault.notes} />
+        </div>
         <details className="md:hidden mb-4 rounded-md border border-stone-200 bg-white px-3 [&[open]]:pb-3">
           <summary className="flex items-center justify-between min-h-11 cursor-pointer select-none text-sm text-stone-600 list-none [&::-webkit-details-marker]:hidden">
             <span>☰ files</span>

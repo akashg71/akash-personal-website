@@ -43,9 +43,8 @@ export function toNotePath(input: string): string | null {
   return isNotePath(withExt) ? withExt : null
 }
 
-export const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/')
-export const noteHref = (p: string) => `/notes/${encodePath(p)}`
-export const noteName = (p: string) => p.split('/').pop()!.replace(/\.md$/i, '')
+export { encodePath, noteHref, noteName, journalPath, ISO_DATE_RE } from './paths'
+import { encodePath } from './paths'
 
 // ── Config ──────────────────────────────────────────────────
 

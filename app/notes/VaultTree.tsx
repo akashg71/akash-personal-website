@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { noteHref, noteName } from '@/lib/notes'
 import InlineAdd from './InlineAdd'
+import LinkPending from './LinkPending'
 
 type TreeNode =
   | { type: 'folder'; name: string; path: string; children: TreeNode[] }
@@ -103,6 +104,7 @@ function Nodes({ nodes, current }: { nodes: TreeNode[]; current: string | null }
               }`}
             >
               {n.name}
+              <LinkPending />
             </Link>
           </li>
         ),

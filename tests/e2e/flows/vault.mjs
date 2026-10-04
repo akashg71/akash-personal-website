@@ -81,3 +81,13 @@ flow('today opens the journal another device already created', { seed }, async p
   await waitFor(page, '::-p-text(Made on the phone)')
   assert.equal(await fake.read(path), '# Made on the phone\n')
 })
+
+flow('opening a note from the tree shows the progress bar until it arrives', { seed }, async page => {
+  await fake.fault({ method: 'GET', path: 'Physics/Mechanics.md', delayMs: 1200, times: 2 })
+  await click(page, '::-p-xpath(//aside//summary[contains(., "Physics")])')
+  await click(page, 'aside a[href="/notes/Physics/Mechanics.md"]')
+  await waitFor(page, '[data-progress]')
+  await waitForNote(page, 'Physics/Mechanics.md')
+  await waitFor(page, '::-p-text(Newton.)')
+  await page.waitForSelector('[data-progress]', { hidden: true })
+})

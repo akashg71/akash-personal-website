@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { mutate } from './mutate'
+import { mutate, requestRefresh } from './mutate'
 
 /**
  * Collapsed "+ label" button that opens a one-line input. Used for "+ add item"
@@ -50,7 +50,7 @@ export default function InlineAdd({
         if (keepOpen) input.current?.focus() // rapid entry: type, enter, type, enter
         else setOpen(false)
         if (data.href) router.push(data.href) // e.g. open the note just created
-        else router.refresh()
+        else requestRefresh()
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))

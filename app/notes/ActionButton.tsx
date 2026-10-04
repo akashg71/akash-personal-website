@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { mutate } from './mutate'
+import { mutate, requestRefresh } from './mutate'
 
 /** One-shot write (optionally confirmed), then re-render from GitHub. */
 export default function ActionButton({
@@ -34,7 +34,7 @@ export default function ActionButton({
       .then(data => {
         const to = redirect ?? data.href
         if (to) router.push(to)
-        else router.refresh()
+        else requestRefresh()
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))

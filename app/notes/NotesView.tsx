@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
 import { splitFrontmatter } from '@/lib/frontmatter'
-import { mutate } from './mutate'
+import { mutate, requestRefresh } from './mutate'
 import type { RichEditorHandle } from './RichEditor'
 
 const RichEditor = dynamic(() => import('./RichEditor'), {
@@ -36,7 +35,6 @@ export default function NotesView({
   startEditing?: boolean
   children: ReactNode
 }) {
-  const router = useRouter()
   // ?edit=1 → straight into the editor with the cursor ready. Set as the initial
   // state rather than by an effect, so there's no flash of the view first.
   const [mode, setMode] = useState<Mode>(startEditing ? 'rich' : 'view')
@@ -109,11 +107,11 @@ export default function NotesView({
       .then(() => {
         setBaseline(text)
         setMode('view')
-        router.refresh()
+        requestRefresh()
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
-  }, [current, baseline, base.sha, file, router])
+  }, [current, baseline, base.sha, file])
 
   useEffect(() => {
     if (!editing) return

@@ -23,6 +23,7 @@ import {
 import { tokenExpiryWarning, type TokenWarning } from '@/lib/token-expiry'
 import ActionButton from '../ActionButton'
 import NotesView from '../NotesView'
+import RefreshHost from '../RefreshHost'
 import ReviewBanner from '../ReviewBanner'
 import InlineAdd from '../InlineAdd'
 import VaultTree, { buildTree } from '../VaultTree'
@@ -191,6 +192,7 @@ export default async function NotesPage({
 
   return (
     <main className="max-w-5xl mx-auto px-5 pt-6 pb-24 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-10">
+      <RefreshHost />
       <aside className="hidden md:block pt-1">
         <SignOut />
         {/* The only instance that owns ⌘K — the phone row below is a second trigger. */}

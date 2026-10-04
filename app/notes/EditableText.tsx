@@ -1,8 +1,7 @@
 'use client'
 
 import { useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
-import { mutate } from './mutate'
+import { mutate, requestRefresh } from './mutate'
 
 /**
  * Rendered text that turns into a one-line input when tapped (task wording or a
@@ -26,7 +25,6 @@ export default function EditableText({
   className?: string
   children: ReactNode
 }) {
-  const router = useRouter()
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(source)
   const [pending, setPending] = useState(false)
@@ -54,7 +52,7 @@ export default function EditableText({
     mutate('/api/notes/rename', { file, kind, line, raw, text })
       .then(() => {
         setEditing(false)
-        router.refresh()
+        requestRefresh()
       })
       .catch(err => {
         committing.current = false // allow a retry from the still-open input

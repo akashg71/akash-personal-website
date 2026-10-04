@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { noteHref, noteName, rankNotes } from '@/lib/paths'
 import { mutate } from './mutate'
+import ProgressBar from './ProgressBar'
 
 /**
  * Obsidian-style quick switcher: ⌘K / Ctrl+K (or the button), type to filter,
@@ -29,6 +30,8 @@ export default function QuickSwitcher({
   const [active, setActive] = useState(0)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [navigating, startNavigation] = useTransition() // drives the progress bar
+  const go = (href: string) => startNavigation(() => router.push(href))
 
   const results = useMemo(() => rankNotes(notes, query), [notes, query])
   const q = query.trim()
@@ -72,7 +75,7 @@ export default function QuickSwitcher({
   function choose(i: number) {
     if (i < results.length) {
       setOpen(false)
-      router.push(noteHref(results[i]))
+      go(noteHref(results[i]))
       return
     }
     if (!canCreate || pending) return
@@ -81,7 +84,7 @@ export default function QuickSwitcher({
     mutate('/api/notes/create', { kind: 'note', name: q })
       .then(data => {
         setOpen(false)
-        if (data.href) router.push(data.href)
+        if (data.href) go(data.href)
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Create failed'))
       .finally(() => setPending(false))
@@ -89,6 +92,7 @@ export default function QuickSwitcher({
 
   return (
     <>
+      <ProgressBar active={navigating} />
       <button
         onClick={show}
         className={`flex items-center justify-between gap-2 h-11 px-3 rounded-md border border-stone-200 bg-white text-sm text-stone-500 hover:border-stone-300 ${className}`}

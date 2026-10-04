@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { journalPath, noteHref } from '@/lib/paths'
 import { localDate, mutate } from './mutate'
+import ProgressBar from './ProgressBar'
 
 /**
  * Daily note (Logseq/Obsidian "journals"): opens Journal/<today>.md, creating it
@@ -14,22 +15,25 @@ export default function TodayButton({ notes, className = '' }: { notes: string[]
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [navigating, startNavigation] = useTransition() // drives the progress bar
+  const go = (href: string) => startNavigation(() => router.push(href))
 
   function open() {
     const date = localDate()
     const path = journalPath(date)
-    if (notes.includes(path)) return router.push(noteHref(path))
+    if (notes.includes(path)) return go(noteHref(path))
     setPending(true)
     setError(null)
     // The route is idempotent: if another device created it meanwhile, we still get its href.
     mutate('/api/notes/create', { kind: 'daily', date })
-      .then(data => router.push(data.href ?? noteHref(path)))
+      .then(data => go(data.href ?? noteHref(path)))
       .catch(err => setError(err instanceof Error ? err.message : 'Could not open today'))
       .finally(() => setPending(false))
   }
 
   return (
     <span className={`flex flex-col ${className}`}>
+      <ProgressBar active={navigating} />
       <button
         onClick={open}
         disabled={pending}

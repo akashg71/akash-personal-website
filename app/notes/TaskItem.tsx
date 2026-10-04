@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
-import { mutate } from './mutate'
+import { mutate, requestRefresh } from './mutate'
 import EditableText from './EditableText'
 
 export default function TaskItem({
@@ -24,7 +23,6 @@ export default function TaskItem({
   label: ReactNode
   children?: ReactNode
 }) {
-  const router = useRouter()
   const [checked, setChecked] = useState(initialChecked)
   const [pending, setPending] = useState(false)
   const [deleted, setDeleted] = useState(false)
@@ -48,7 +46,7 @@ export default function TaskItem({
     setDeleted(true) // optimistic
     setError(null)
     mutate('/api/notes/delete', { file, kind: 'task', line, raw })
-      .then(() => router.refresh()) // line numbers below this item shifted
+      .then(() => requestRefresh()) // line numbers below this item shifted
       .catch(err => {
         setDeleted(false)
         setError(err instanceof Error ? err.message : 'Delete failed')

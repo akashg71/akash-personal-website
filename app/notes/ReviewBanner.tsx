@@ -1,13 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { localDate, mutate } from './mutate'
+import { localDate, mutate, requestRefresh } from './mutate'
 
 const DUE_AFTER_DAYS = 7
 
 export default function ReviewBanner({ last, days }: { last: string | null; days: number | null }) {
-  const router = useRouter()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const due = days === null || days >= DUE_AFTER_DAYS
@@ -16,7 +14,7 @@ export default function ReviewBanner({ last, days }: { last: string | null; days
     setPending(true)
     setError(null)
     mutate('/api/notes/review', { date: localDate() })
-      .then(() => router.refresh())
+      .then(() => requestRefresh())
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
   }

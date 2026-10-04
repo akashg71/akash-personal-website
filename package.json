@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "check": "tsc --noEmit && npm run lint && npm test",
     "test": "node --import ./tests/unit/hooks.mjs --test 'tests/unit/*.test.ts'",
-    "test:e2e": "node tests/e2e/run.mjs"
+    "test:e2e": "node tests/e2e/run.mjs",
+    "smoke:prod": "node tests/e2e/prod-smoke.mjs"
   },
   "dependencies": {
     "@milkdown/crepe": "^7.22.2",

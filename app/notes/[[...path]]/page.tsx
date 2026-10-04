@@ -16,7 +16,6 @@ import {
 } from '@/lib/notes'
 import ActionButton from '../ActionButton'
 import NotesView from '../NotesView'
-import QuickAdd from '../QuickAdd'
 import ReviewBanner from '../ReviewBanner'
 import InlineAdd from '../InlineAdd'
 import VaultTree, { buildTree } from '../VaultTree'
@@ -53,16 +52,16 @@ export default async function NotesPage({
   searchParams,
 }: {
   params: Params
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; edit?: string }>
 }) {
   const { missing, repo } = notesConfig()
   if (missing.length) {
     return <Single><Notice>Not configured. Missing env: {missing.join(', ')}</Notice></Single>
   }
 
+  const { error, edit } = await searchParams
   const session = (await cookies()).get(SESSION_COOKIE)?.value
   if (!isValidSession(session)) {
-    const { error } = await searchParams
     return <Single><Login error={Boolean(error)} /></Single>
   }
 
@@ -152,13 +151,8 @@ export default async function NotesPage({
       </>
     )
     body = (
-      <NotesView key={file} file={file} content={content} sha={sha} meta={meta}>
-        {file === TODO_FILE && (
-          <>
-            <ReviewBanner {...reviewStatus(content)} />
-            <QuickAdd />
-          </>
-        )}
+      <NotesView key={file} file={file} content={content} sha={sha} meta={meta} startEditing={edit === '1'}>
+        {file === TODO_FILE && <ReviewBanner {...reviewStatus(content)} />}
         <div className="text-[16px] leading-relaxed text-stone-800">{renderNote(content, file)}</div>
         <div className="mt-10 pt-4 border-t border-stone-200">
           <InlineAdd

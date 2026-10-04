@@ -73,17 +73,23 @@ function Nodes({ nodes, current }: { nodes: TreeNode[]; current: string | null }
       {nodes.map(n =>
         n.type === 'folder' ? (
           <li key={n.path}>
-            <details open={Boolean(current?.startsWith(`${n.path}/`))} className="group">
+            {/* Open if it holds the current note, or is empty — so a folder you just
+                created shows its "+ new note" straight away. */}
+            <details open={Boolean(current?.startsWith(`${n.path}/`)) || n.children.length === 0} className="group">
               <summary className="flex items-center gap-1.5 min-h-9 -mx-2 px-2 rounded cursor-pointer select-none text-stone-700 hover:bg-stone-100 list-none [&::-webkit-details-marker]:hidden">
                 <span className="text-stone-400 text-xs transition-transform group-open:rotate-90">▶</span>
                 {n.name}
               </summary>
               <div className="ml-1.5 pl-3 border-l border-stone-200">
-                {n.children.length ? (
-                  <Nodes nodes={n.children} current={current} />
-                ) : (
-                  <p className="min-h-9 flex items-center text-xs text-stone-400">empty</p>
-                )}
+                <InlineAdd
+                  trigger="new note"
+                  placeholder="Note name"
+                  url="/api/notes/create"
+                  body={{ kind: 'note' }}
+                  field="name"
+                  prefix={`${n.path}/`}
+                />
+                {n.children.length > 0 && <Nodes nodes={n.children} current={current} />}
               </div>
             </details>
           </li>

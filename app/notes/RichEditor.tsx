@@ -5,7 +5,8 @@
 // ships with the normal /notes page — only when you tap "edit".
 import { useEffect, useRef } from 'react'
 import { Crepe } from '@milkdown/crepe'
-import { remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { Selection } from '@milkdown/kit/prose/state'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import './editor.css'
@@ -14,11 +15,14 @@ export default function RichEditor({
   initial,
   onChange,
   onReady,
+  autoFocus = false,
 }: {
   initial: string
   onChange: (markdown: string) => void
   /** Called once with Crepe's own serialization of `initial` — the baseline for "dirty". */
   onReady: (markdown: string) => void
+  /** Put the cursor at the end, ready to type (new notes). */
+  autoFocus?: boolean
 }) {
   const root = useRef<HTMLDivElement>(null)
   const callbacks = useRef({ onChange, onReady })
@@ -53,11 +57,20 @@ export default function RichEditor({
     crepe.create().then(() => {
       ready = true
       callbacks.current.onReady(crepe.getMarkdown())
+      if (autoFocus) {
+        crepe.editor.action(ctx => {
+          const view = ctx.get(editorViewCtx)
+          view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)))
+          view.focus()
+        })
+      }
     })
     return () => {
       ready = false
       crepe.destroy()
     }
+    // autoFocus only matters for the first mount; not a reason to remount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial])
 
   return <div ref={root} className="notes-editor" />

@@ -7,7 +7,7 @@ import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import type { Heading, ListItem, Nodes } from 'mdast'
 
-export const TODO_FILE = 'todo.md' // gets the review banner + inbox quick-add
+export const TODO_FILE = 'todo.md' // the default note; gets the weekly review banner
 export type NotesFile = string
 export const SESSION_COOKIE = 'notes_session'
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
@@ -496,16 +496,6 @@ export function deleteTask(content: string, line: number, raw: string): string |
     target = matches[0]
   }
   return removeLines(lines, target.position!.start.line - 1, target.position!.end.line)
-}
-
-/** Append to the "Inbox" section; create "## Inbox" at the end if there isn't one. */
-export function addToInbox(content: string, text: string): string {
-  const { kids, heads } = rootHeadings(content)
-  const lines = content.split('\n')
-  const hi = heads.find(i => headingTitle(lines[kids[i].position!.start.line - 1]).toLowerCase() === 'inbox')
-  if (hi !== undefined) return insertTask(content, kids, hi, text)
-  const eol = eolOf(content)
-  return `${content.trimEnd()}${eol}\n${eol}\n## Inbox${eol}\n${eol}\n- [ ] ${text}${eol}\n`
 }
 
 /** Add "## title" before the Inbox section (Inbox stays last), else at the end. null if it exists. */

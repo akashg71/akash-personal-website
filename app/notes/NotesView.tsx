@@ -23,16 +23,22 @@ export default function NotesView({
   content,
   sha,
   meta,
+  startEditing = false,
   children,
 }: {
   file: string
   content: string
   sha: string
   meta: ReactNode
+  /** Open in the rich editor (new notes arrive with ?edit=1). */
+  startEditing?: boolean
   children: ReactNode
 }) {
   const router = useRouter()
   const [mode, setMode] = useState<Mode>('view')
+  const [focusEditor, setFocusEditor] = useState(false)
+  // Nothing but the "# Title" line → show a "Start writing" prompt instead.
+  const empty = content.replace(/^#[^\n]*\n?/, '').trim() === ''
   const [draft, setDraft] = useState(content)
   const [base, setBase] = useState({ content, sha }) // what the editor was opened on
   const [richSeed, setRichSeed] = useState(content) // what the rich editor (re)mounts with
@@ -53,14 +59,25 @@ export default function NotesView({
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
 
-  function open() {
+  function open(focus = false) {
     setBase({ content, sha })
     setDraft(content)
     setRichSeed(content)
     setBaseline(content)
     setError(null)
+    setFocusEditor(focus)
     setMode('rich')
   }
+
+  // ?edit=1 → straight into the editor, then drop the flag from the URL so a
+  // reload or the refresh after saving doesn't reopen it.
+  useEffect(() => {
+    if (!startEditing) return
+    open(true)
+    window.history.replaceState(null, '', window.location.pathname)
+    // run once on arrival
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function cancel() {
     if (dirty && !window.confirm('Discard your changes?')) return
@@ -128,7 +145,12 @@ export default function NotesView({
             </button>
           </div>
         ) : (
-          <button onClick={open} className={`${quiet} -mr-2`}>edit</button>
+          <button
+            onClick={() => open()}
+            className="h-9 px-3 rounded-md border border-stone-300 bg-white text-xs font-medium text-stone-700 hover:border-stone-500 hover:text-stone-900"
+          >
+            ✎ Edit
+          </button>
         )}
       </div>
 
@@ -138,6 +160,7 @@ export default function NotesView({
         <div className="-mx-2 rounded-md border border-stone-200 bg-white">
           <RichEditor
             initial={richSeed}
+            autoFocus={focusEditor}
             onReady={md => {
               // First mount on an untouched file: adopt the editor's serialization as
               // the baseline. A remount after source edits keeps the user's draft.
@@ -167,6 +190,15 @@ export default function NotesView({
         </div>
       )}
 
+      {mode === 'view' && empty && (
+        <button
+          onClick={() => open(true)}
+          className="w-full mb-6 rounded-md border border-dashed border-stone-300 py-8 text-sm text-stone-500 hover:border-stone-500 hover:text-stone-800"
+        >
+          Empty note — <span className="underline underline-offset-2">start writing</span>
+          <span className="block mt-1 text-xs text-stone-400">headings, bold, lists, checklists, tables, code</span>
+        </button>
+      )}
       {mode === 'view' && children}
     </>
   )

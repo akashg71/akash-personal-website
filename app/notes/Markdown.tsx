@@ -30,9 +30,14 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
   const out: ReactNode[] = []
   const seen = new Map<string, number>()
   let section: SectionRef | null = null
+  // "+ add item" (which appends a "- [ ]") only fits checklist sections. Prose
+  // sections — paragraphs, plain bullets — are edited in the editor instead, so
+  // they don't get a todo button. Empty sections get one (a fresh "## Today").
+  let sectionEmpty = true
+  let sectionHasTasks = false
 
   const flush = () => {
-    if (!section) return
+    if (!section || !(sectionEmpty || sectionHasTasks)) return
     // Keyed by heading text (not line) so an open input survives the refresh
     // after an add shifts every line below it.
     const n = (seen.get(section.raw) ?? 0) + 1
@@ -56,7 +61,14 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
       flush()
       const line = node.position?.start.line
       section = node.depth >= 2 && line ? { line, raw: ctx.lines[line - 1] ?? '' } : null
+      sectionEmpty = true
+      sectionHasTasks = false
       if (section) return void out.push(renderSectionHeading(node, section, ctx, i))
+    } else {
+      // The review stamp paragraph isn't visible content.
+      const stamp = node.type === 'paragraph' && REVIEW_LINE_RE.test(ctx.lines[(node.position?.start.line ?? 0) - 1]?.trimEnd() ?? '')
+      if (!stamp) sectionEmpty = false
+      if (node.type === 'list' && node.children.some(li => typeof li.checked === 'boolean')) sectionHasTasks = true
     }
     out.push(render(node, ctx, false, i))
   })

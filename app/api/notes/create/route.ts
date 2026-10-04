@@ -60,7 +60,8 @@ export async function POST(request: Request) {
     const path = toNotePath(name)
     if (!path) return invalid
     const content = path === TODO_FILE ? TODO_TEMPLATE : `# ${noteName(path)}\n\n`
-    return createNotesFile(path, content, { href: noteHref(path) })
+    // ?edit=1: a brand-new note opens straight in the rich editor, like Obsidian.
+    return createNotesFile(path, content, { href: `${noteHref(path)}?edit=1` })
   }
 
   return Response.json({ error: 'Bad request' }, { status: 400 })

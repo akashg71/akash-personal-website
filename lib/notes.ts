@@ -105,6 +105,13 @@ export class GitHubError extends Error {
   }
 }
 
+// GitHub reports when GITHUB_TOKEN expires on every response (no header = it
+// never does). Kept from the latest one so /notes can warn before it lapses.
+let tokenExpiration: string | null = null
+
+/** The `github-authentication-token-expiration` header of GitHub's latest response. */
+export const getTokenExpiration = () => tokenExpiration
+
 async function gh(path: string, init: RequestInit = {}) {
   const { token, repo } = notesConfig()
   let res: Response
@@ -124,6 +131,7 @@ async function gh(path: string, init: RequestInit = {}) {
     const timedOut = err instanceof Error && err.name === 'TimeoutError'
     throw new GitHubError(0, timedOut ? 'GitHub timed out after 10s' : 'GitHub unreachable (network error)')
   }
+  tokenExpiration = res.headers.get('github-authentication-token-expiration')
   if (!res.ok) {
     const hint =
       res.status === 401 ? 'token invalid or expired' :

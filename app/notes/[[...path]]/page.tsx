@@ -5,6 +5,7 @@ import {
   GitHubError,
   getLastUpdated,
   getNotesFile,
+  getTokenExpiration,
   isNotePath,
   isValidSession,
   lastReviewed,
@@ -14,6 +15,7 @@ import {
   SESSION_COOKIE,
   TODO_FILE,
 } from '@/lib/notes'
+import { tokenExpiryWarning, type TokenWarning } from '@/lib/token-expiry'
 import ActionButton from '../ActionButton'
 import NotesView from '../NotesView'
 import ReviewBanner from '../ReviewBanner'
@@ -99,6 +101,8 @@ export default async function NotesPage({
   const file = requested || (vault.notes.includes(TODO_FILE) ? TODO_FILE : vault.notes[0] ?? null)
   if (file && !requested) await settle(noteFetch(file))
   const tree = buildTree(vault.notes, vault.folders)
+  // listVault just heard from GitHub, so the token's expiry header is current.
+  const tokenWarning = tokenExpiryWarning(getTokenExpiration())
 
   let body: ReactNode
   if (!file) {
@@ -181,6 +185,7 @@ export default async function NotesPage({
         <VaultTree tree={tree} current={file} />
       </aside>
       <section className="min-w-0 max-w-2xl">
+        {tokenWarning && <TokenBanner {...tokenWarning} />}
         {/* Phone: search + today always visible; the tree lives in a drawer. */}
         <div className="md:hidden flex gap-2 mb-2">
           <QuickSwitcher notes={vault.notes} className="flex-1" />
@@ -231,6 +236,19 @@ function SignOut() {
 
 function Notice({ children }: { children: ReactNode }) {
   return <p className="mt-8 text-sm text-stone-700 leading-relaxed">{children}</p>
+}
+
+function TokenBanner({ days, date }: TokenWarning) {
+  return (
+    <p role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900">
+      GitHub token {days === 0 ? `expired on ${date}` : `expires in ${days} day${days === 1 ? '' : 's'} (${date})`}.{' '}
+      {/* Vertical padding on an inline link grows the tap target to 44px without moving the text. */}
+      <a href="https://github.com/settings/personal-access-tokens" className="py-3.5 underline underline-offset-2">
+        Generate a new one
+      </a>{' '}
+      and update GITHUB_TOKEN in Vercel.
+    </p>
+  )
 }
 
 function Login({ error }: { error: boolean }) {

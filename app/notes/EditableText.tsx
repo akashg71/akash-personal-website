@@ -1,12 +1,15 @@
 'use client'
 
 import { useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { mutate, requestRefresh } from './mutate'
+import { renameKey } from '@/lib/optimistic'
+import { useOverlay, writeOptimistic } from './overlay'
 
 /**
  * Rendered text that turns into a one-line input when tapped (task wording or a
  * section heading). Enter or tapping away saves; Escape cancels. The input holds
  * the markdown source, so **bold** / [links](…) survive an edit.
+ * The new wording shows at once (as typed, until the server renders it); a
+ * failed save brings back the old wording and reopens the input with the error.
  */
 export default function EditableText({
   file,
@@ -14,6 +17,7 @@ export default function EditableText({
   line,
   raw,
   source,
+  sha,
   className = '',
   children,
 }: {
@@ -22,12 +26,14 @@ export default function EditableText({
   line: number
   raw: string
   source: string
+  sha: string // file version this render shows
   className?: string
   children: ReactNode
 }) {
+  const key = renameKey(file, kind, raw)
+  const renamed = useOverlay(key, sha).at(-1)?.value
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(source)
-  const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cancelled = useRef(false)
   // Enter commits, and then the blur that follows would commit again — with the
@@ -36,6 +42,7 @@ export default function EditableText({
 
   function start(e: MouseEvent | KeyboardEvent) {
     if ((e.target as HTMLElement).closest('a')) return // links inside the text still navigate
+    if (renamed !== undefined) return // still saving: `raw` no longer matches the file
     setValue(source)
     setError(null)
     committing.current = false
@@ -47,18 +54,15 @@ export default function EditableText({
     const text = value.trim()
     if (!text || text === source.trim()) return setEditing(false)
     committing.current = true
-    setPending(true)
     setError(null)
-    mutate('/api/notes/rename', { file, kind, line, raw, text })
-      .then(() => {
-        setEditing(false)
-        requestRefresh()
-      })
+    setEditing(false)
+    writeOptimistic(key, text, '/api/notes/rename', { file, kind, line, raw, text })
       .catch(err => {
-        committing.current = false // allow a retry from the still-open input
+        setValue(text) // reopen with what they typed, to retry or Escape
+        setEditing(true)
         setError(err instanceof Error ? err.message : 'Save failed')
       })
-      .finally(() => setPending(false))
+      .finally(() => (committing.current = false))
   }
 
   if (editing) {
@@ -68,7 +72,6 @@ export default function EditableText({
         <input
           autoFocus
           value={value}
-          readOnly={pending} // not `disabled`: disabling a focused input fires blur
           maxLength={300}
           enterKeyHint="done"
           onChange={e => setValue(e.target.value)}
@@ -80,7 +83,7 @@ export default function EditableText({
             if (cancelled.current) { cancelled.current = false; return }
             commit()
           }}
-          className="w-full min-h-9 -my-1 -mx-2 px-2 text-base [font-weight:inherit] rounded border border-stone-300 bg-white text-stone-900 focus:outline-none focus:border-stone-500 read-only:opacity-60"
+          className="w-full min-h-9 -my-1 -mx-2 px-2 text-base [font-weight:inherit] rounded border border-stone-300 bg-white text-stone-900 focus:outline-none focus:border-stone-500"
         />
         {error && <span role="alert" className="block mt-1 text-xs font-normal text-red-700">{error}</span>}
       </span>
@@ -93,9 +96,10 @@ export default function EditableText({
       tabIndex={0}
       onClick={start}
       onKeyDown={e => e.key === 'Enter' && start(e)}
-      className={`cursor-text ${className}`}
+      aria-busy={renamed !== undefined || undefined}
+      className={`cursor-text ${className} ${renamed !== undefined ? 'text-stone-500' : ''}`}
     >
-      {children}
+      {renamed ?? children}
     </span>
   )
 }

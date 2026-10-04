@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
+import { renameKey } from '@/lib/optimistic'
 import { mutate, requestRefresh } from './mutate'
+import { useOverlay } from './overlay'
 import EditableText from './EditableText'
 
 export default function TaskItem({
@@ -11,6 +13,7 @@ export default function TaskItem({
   title,
   source,
   initialChecked,
+  sha,
   label,
   children,
 }: {
@@ -20,9 +23,12 @@ export default function TaskItem({
   title: string // plain text, for the delete confirmation
   source: string // markdown after the checkbox, for inline editing
   initialChecked: boolean
+  sha: string // file version this render shows
   label: ReactNode
   children?: ReactNode
 }) {
+  // While a rename is saving, `raw` no longer matches the file: hold other edits.
+  const renaming = useOverlay(renameKey(file, 'task', raw), sha).length > 0
   const [checked, setChecked] = useState(initialChecked)
   const [pending, setPending] = useState(false)
   const [deleted, setDeleted] = useState(false)
@@ -64,7 +70,7 @@ export default function TaskItem({
             type="checkbox"
             checked={checked}
             onChange={toggle}
-            disabled={pending}
+            disabled={pending || renaming}
             aria-label={title}
             className="size-5 accent-stone-800 cursor-pointer"
           />
@@ -76,6 +82,7 @@ export default function TaskItem({
             line={line}
             raw={raw}
             source={source}
+            sha={sha}
             className={checked ? 'text-stone-400 line-through decoration-stone-300' : 'text-stone-800'}
           >
             {label}
@@ -83,7 +90,7 @@ export default function TaskItem({
         </div>
         <button
           onClick={remove}
-          disabled={pending}
+          disabled={pending || renaming}
           aria-label={`Delete ${title}`}
           className="size-11 shrink-0 -mr-3 flex items-center justify-center text-lg leading-none text-stone-300 hover:text-red-700 active:text-red-700"
         >

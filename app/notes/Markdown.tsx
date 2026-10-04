@@ -4,17 +4,20 @@
 import type { ReactNode } from 'react'
 import type { Heading, Nodes, List, ListItem, Root } from 'mdast'
 import { headingTitle, parseMarkdown, REVIEW_LINE_RE, taskSource, taskText } from '@/lib/notes'
+import { addKey, sectionsKey } from '@/lib/optimistic'
 import ActionButton from './ActionButton'
 import EditableText from './EditableText'
 import InlineAdd from './InlineAdd'
+import { PendingItems, PendingSections } from './Pending'
 import Properties from './Properties'
 import TaskItem from './TaskItem'
 
-type Ctx = { lines: string[]; file: string }
+type Ctx = { lines: string[]; file: string; sha: string }
 type SectionRef = { line: number; raw: string }
 
-export function renderNote(content: string, file: string): ReactNode[] {
-  return renderRoot(parseMarkdown(content), { lines: content.split('\n'), file })
+/** `sha` is the file version being rendered: optimistic changes hide once it includes them. */
+export function renderNote(content: string, file: string, sha: string): ReactNode[] {
+  return renderRoot(parseMarkdown(content), { lines: content.split('\n'), file, sha })
 }
 
 function safeHref(url: string) {
@@ -24,8 +27,10 @@ function safeHref(url: string) {
 /**
  * Top level: render each node, and after each ##+ section's own content (i.e.
  * just before the next heading of any level, or at the end) put a "+ add item"
- * for that section. lib/notes.ts addToSection inserts at exactly that point.
- * The h1 gets none — it's the document title.
+ * for that section. lib/notes.ts addToSection inserts at exactly that point,
+ * so items still saving show there too. The h1 gets none — it's the title.
+ * Sections still saving show where addSection puts them: before the first
+ * "Inbox" heading, else at the end.
  */
 function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
   const out: ReactNode[] = []
@@ -36,6 +41,9 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
   // they don't get a todo button. Empty sections get one (a fresh "## Today").
   let sectionEmpty = true
   let sectionHasTasks = false
+  let sectionLast: Root['children'][number] | null = null // where addToSection appends
+  const sectionSlot = <PendingSections key="pending-sections" overlayKey={sectionsKey(ctx.file)} sha={ctx.sha} />
+  let slotPlaced = false
 
   const flush = () => {
     if (!section || !(sectionEmpty || sectionHasTasks)) return
@@ -43,8 +51,14 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
     // after an add shifts every line below it.
     const n = (seen.get(section.raw) ?? 0) + 1
     seen.set(section.raw, n)
+    const key = addKey(ctx.file, section.raw, n)
     out.push(
       <div key={`add:${section.raw}:${n}`} className="mt-1 mb-2">
+        <PendingItems
+          overlayKey={key}
+          sha={ctx.sha}
+          joinsList={sectionLast?.type === 'list' && !sectionLast.ordered}
+        />
         <InlineAdd
           trigger="add item"
           placeholder="New item"
@@ -52,6 +66,7 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
           body={{ file: ctx.file, heading: section }}
           field="text"
           keepOpen
+          optimistic={{ key, sha: ctx.sha }}
         />
       </div>,
     )
@@ -61,19 +76,26 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
     if (node.type === 'heading') {
       flush()
       const line = node.position?.start.line
+      if (!slotPlaced && line && headingTitle(ctx.lines[line - 1] ?? '').toLowerCase() === 'inbox') {
+        out.push(sectionSlot)
+        slotPlaced = true
+      }
       section = node.depth >= 2 && line ? { line, raw: ctx.lines[line - 1] ?? '' } : null
       sectionEmpty = true
       sectionHasTasks = false
+      sectionLast = null
       if (section) return void out.push(renderSectionHeading(node, section, ctx, i))
     } else {
       // The review stamp paragraph isn't visible content.
       const stamp = node.type === 'paragraph' && REVIEW_LINE_RE.test(ctx.lines[(node.position?.start.line ?? 0) - 1]?.trimEnd() ?? '')
       if (!stamp) sectionEmpty = false
       if (node.type === 'list' && node.children.some(li => typeof li.checked === 'boolean')) sectionHasTasks = true
+      sectionLast = node
     }
     out.push(render(node, ctx, false, i))
   })
   flush()
+  if (!slotPlaced) out.push(sectionSlot)
   return out
 }
 
@@ -101,7 +123,7 @@ function renderSectionHeading(node: Heading, ref: SectionRef, ctx: Ctx, key: num
   const title = headingTitle(ref.raw)
   return (
     <Tag key={key} className={`${cls} first:mt-0 flex items-center justify-between gap-2`}>
-      <EditableText file={ctx.file} kind="section" line={ref.line} raw={ref.raw} source={title} className="min-w-0">
+      <EditableText file={ctx.file} kind="section" line={ref.line} raw={ref.raw} source={title} sha={ctx.sha} className="min-w-0">
         {node.children.map((c, i) => render(c, ctx, false, i))}
       </EditableText>
       <ActionButton
@@ -237,6 +259,7 @@ function renderItem(li: ListItem, ctx: Ctx, tight: boolean, key: number) {
       title={taskText(raw)}
       source={taskSource(raw)}
       initialChecked={li.checked}
+      sha={ctx.sha}
       label={label}
     >
       {body.length ? body : undefined}

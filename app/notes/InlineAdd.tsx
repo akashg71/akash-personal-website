@@ -3,11 +3,14 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate, requestRefresh } from './mutate'
+import { writeOptimistic } from './overlay'
 
 /**
  * Collapsed "+ label" button that opens a one-line input. Used for "+ add item"
  * under each section and "+ new section" at the bottom. `body` is merged with
- * { [field]: value } and POSTed to `url`.
+ * { [field]: value } and POSTed to `url`. With `optimistic`, the entry shows at
+ * once under that overlay key (see Pending.tsx) and the input is free for the
+ * next one; a failed write puts the text back with the error.
  */
 export default function InlineAdd({
   trigger,
@@ -17,6 +20,7 @@ export default function InlineAdd({
   field,
   keepOpen = false,
   prefix = '',
+  optimistic,
 }: {
   trigger: string
   placeholder: string
@@ -25,6 +29,7 @@ export default function InlineAdd({
   field: 'text' | 'title' | 'name'
   keepOpen?: boolean
   prefix?: string // pre-filled text, e.g. the current folder "Physics/"
+  optimistic?: { key: string; sha: string }
 }) {
   const router = useRouter()
   const input = useRef<HTMLInputElement>(null)
@@ -42,8 +47,9 @@ export default function InlineAdd({
   function submit(e: FormEvent) {
     e.preventDefault()
     if (!value.trim() || pending) return
-    setPending(true)
     setError(null)
+    if (optimistic) return submitOptimistic(optimistic.key)
+    setPending(true)
     mutate(url, { ...body, [field]: value })
       .then(data => {
         setValue(prefix)
@@ -54,6 +60,23 @@ export default function InlineAdd({
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
+  }
+
+  function submitOptimistic(key: string) {
+    // Shown as the server will write it: one line, and a title without leading #s.
+    const text = value.replace(/\s+/g, ' ').trim()
+    setValue(prefix)
+    if (keepOpen) input.current?.focus()
+    else setOpen(false)
+    writeOptimistic(key, field === 'title' ? text.replace(/^#+\s*/, '') : text, url, { ...body, [field]: text })
+      .catch(err => {
+        const message = err instanceof Error ? err.message : 'Save failed'
+        // Give the text back, unless the next item is already being typed.
+        const typing = (input.current?.value ?? prefix) !== prefix
+        setOpen(true)
+        if (!typing) setValue(text)
+        setError(typing ? `“${text}” wasn’t saved: ${message}` : message)
+      })
   }
 
   if (!open) {

@@ -3,11 +3,11 @@
 // avoids self-inflicted conflicts and keeps the server's single retry for real ones.
 let chain: Promise<unknown> = Promise.resolve()
 
-export type WriteResult = { href?: string }
+export type WriteResult = { href?: string; sha?: string; seq?: number }
 
-// What the progress bar reads.
-type Sync = { writes: number; refreshing: boolean }
-export const IDLE: Sync = { writes: 0, refreshing: false }
+// What the progress bar and the optimistic overlays read.
+type Sync = { writes: number; refreshing: boolean; applied: number }
+export const IDLE: Sync = { writes: 0, refreshing: false, applied: 0 }
 let sync = IDLE
 const listeners = new Set<() => void>()
 
@@ -22,6 +22,12 @@ export function subscribe(f: () => void) {
 }
 export const getSync = () => sync
 
+// File shas our writes produced, numbered in write order: a render showing one
+// of them includes that write and every earlier one.
+let seq = 0
+const shaSeq = new Map<string, number>()
+export const seqOf = (sha: string) => shaSeq.get(sha) ?? 0
+
 export function mutate(url: string, body: unknown): Promise<WriteResult> {
   set({ writes: sync.writes + 1 })
   const run = chain.then(async () => {
@@ -32,6 +38,7 @@ export function mutate(url: string, body: unknown): Promise<WriteResult> {
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status})`)
+    if (typeof data.sha === 'string') shaSeq.set(data.sha, (data.seq = ++seq))
     return data
   })
   chain = run.catch(() => {}).then(() => { // a failed write must not block the next one
@@ -54,6 +61,9 @@ export function requestRefresh() {
   kick()
 }
 
+/** The generation of the first refresh that starts from now on. */
+export const nextRefresh = () => started + 1
+
 export function setRefreshRunner(run: (() => void) | null) {
   runner = run
   kick()
@@ -71,7 +81,7 @@ function kick() {
 
 export function refreshSettled() {
   if (!sync.refreshing) return
-  set({ refreshing: false })
+  set({ refreshing: false, applied: started })
   kick()
 }
 

@@ -203,6 +203,7 @@ async function putNotesFile(file: NotesFile, content: string, sha: string, messa
     }),
   })
   applyWrite(file, content, res)
+  return res
 }
 
 // ── Read-modify-write ───────────────────────────────────────
@@ -218,16 +219,18 @@ export type Edit =
  * the sha it just read. A 409 means someone committed between our GET and PUT
  * (another device, or an edit on GitHub) — re-read and try once more; if it
  * conflicts again, report it rather than overwrite.
+ * Answers { ok, sha } with the file's new blob sha, so the client knows which
+ * render includes the write (see lib/optimistic.ts).
  */
 export async function editNotesFile(file: NotesFile, edit: (content: string) => Edit): Promise<Response> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { content, sha } = await getNotesFile(file)
       const result = edit(content)
-      if ('noop' in result) return Response.json({ ok: true })
+      if ('noop' in result) return Response.json({ ok: true, sha })
       if ('conflict' in result) return Response.json({ error: result.conflict }, { status: 409 })
-      await putNotesFile(file, result.content, sha, result.message)
-      return Response.json({ ok: true })
+      const put = await putNotesFile(file, result.content, sha, result.message)
+      return Response.json({ ok: true, sha: put?.content?.sha })
     } catch (err) {
       if (err instanceof GitHubError && err.status === 409 && attempt === 0) continue
       if (err instanceof GitHubError && err.status === 409) {

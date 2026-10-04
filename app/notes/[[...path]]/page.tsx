@@ -20,6 +20,7 @@ import {
   TODO_FILE,
   warmSnapshot,
 } from '@/lib/notes'
+import { sectionsKey } from '@/lib/optimistic'
 import { tokenExpiryWarning, type TokenWarning } from '@/lib/token-expiry'
 import ActionButton from '../ActionButton'
 import NotesView from '../NotesView'
@@ -174,7 +175,7 @@ export default async function NotesPage({
     body = (
       <NotesView key={file} file={file} content={content} sha={sha} meta={meta} startEditing={edit === '1'}>
         {file === TODO_FILE && <ReviewBanner {...reviewStatus(content)} />}
-        <div className="text-[16px] leading-relaxed text-stone-800">{renderNote(content, file)}</div>
+        <div className="text-[16px] leading-relaxed text-stone-800">{renderNote(content, file, sha)}</div>
         <div className="mt-10 pt-4 border-t border-stone-200">
           <InlineAdd
             trigger="new section"
@@ -182,6 +183,7 @@ export default async function NotesPage({
             url="/api/notes/section"
             body={{ file }}
             field="title"
+            optimistic={{ key: sectionsKey(file), sha }}
           />
         </div>
       </NotesView>

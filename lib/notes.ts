@@ -5,6 +5,7 @@ import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
+import type { Heading, ListItem, Nodes } from 'mdast'
 
 export const NOTES_FILES = { todo: 'todo.md', progress: 'progress.md' } as const
 export type NotesFile = (typeof NOTES_FILES)[keyof typeof NOTES_FILES]
@@ -198,13 +199,33 @@ export async function saveNotesFile(file: NotesFile, content: string, sha: strin
   }
 }
 
+/** Create a missing file. PUT without a sha only succeeds if the path doesn't exist yet. */
+export async function createNotesFile(file: NotesFile, content: string): Promise<Response> {
+  try {
+    await gh(`/contents/${file}`, {
+      method: 'PUT',
+      body: JSON.stringify({ message: `create ${file}`, content: Buffer.from(content, 'utf8').toString('base64') }),
+    })
+    return Response.json({ ok: true })
+  } catch (err) {
+    // GitHub answers 422 ("sha wasn't supplied") when the file already exists.
+    if (err instanceof GitHubError && err.status === 422) {
+      return Response.json({ error: `${file} already exists — reload.` }, { status: 409 })
+    }
+    return Response.json(
+      { error: `Create failed: ${err instanceof Error ? err.message : 'unknown error'}` },
+      { status: 502 },
+    )
+  }
+}
+
 // ── Markdown structure ──────────────────────────────────────
 
 export function parseMarkdown(content: string) {
   return fromMarkdown(content, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
 }
 
-const headingTitle = (line: string) => line.trim().replace(/^#{1,6}[ \t]*/, '').replace(/[ \t]+#+$/, '').trim()
+export const headingTitle = (line: string) => line.trim().replace(/^#{1,6}[ \t]*/, '').replace(/[ \t]+#+$/, '').trim()
 
 // ── Line-level edits (pure; unit-tested) ────────────────────
 // All edits split on \n only: CRLF files keep their \r on each line, and inserted
@@ -302,20 +323,76 @@ function insertTask(content: string, kids: ReturnType<typeof rootHeadings>['kids
   return lines.join('\n')
 }
 
-/** Append "- [ ] text" to the section under `heading`. null if the heading is gone/ambiguous. */
-export function addToSection(content: string, heading: HeadingRef, text: string): string | null {
+/** Index (into root children) of the heading at `ref`; unique-text fallback if it moved. */
+function locateHeading(content: string, ref: HeadingRef) {
   const { kids, heads } = rootHeadings(content)
   const lines = content.split('\n')
-  const raw = heading.raw.trimEnd()
+  const raw = ref.raw.trimEnd()
   const lineOf = (i: number) => lines[kids[i].position!.start.line - 1].trimEnd()
 
-  let hi = heads.find(i => kids[i].position!.start.line === heading.line && lineOf(i) === raw)
+  let hi = heads.find(i => kids[i].position!.start.line === ref.line && lineOf(i) === raw)
   if (hi === undefined) {
-    const matches = heads.filter(i => lineOf(i) === raw) // heading moved: unique text match
+    const matches = heads.filter(i => lineOf(i) === raw)
     if (matches.length !== 1) return null
     hi = matches[0]
   }
-  return insertTask(content, kids, hi, text)
+  return { kids, heads, lines, hi }
+}
+
+/** Append "- [ ] text" to the section under `heading`. null if the heading is gone/ambiguous. */
+export function addToSection(content: string, heading: HeadingRef, text: string): string | null {
+  const found = locateHeading(content, heading)
+  return found && insertTask(content, found.kids, found.hi, text)
+}
+
+/** Remove lines [start, end) (0-based) and tidy the seam so no blank-line pile-up is left behind. */
+function removeLines(lines: string[], start: number, end: number) {
+  lines.splice(start, end - start)
+  if (start > 0 && start < lines.length && lines[start - 1].trim() === '' && lines[start].trim() === '') {
+    lines.splice(start, 1)
+  }
+  while (lines.length > 1 && lines[lines.length - 1] === '' && lines[lines.length - 2].trim() === '') {
+    lines.splice(lines.length - 2, 1) // at most one trailing newline
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Delete a section: its heading plus everything under it — including deeper
+ * sub-sections — up to the next heading of the same or higher level.
+ */
+export function deleteSection(content: string, heading: HeadingRef): string | null {
+  const found = locateHeading(content, heading)
+  if (!found) return null
+  const { kids, heads, lines, hi } = found
+  const depth = (kids[hi] as Heading).depth
+  const next = heads.find(i => i > hi && (kids[i] as Heading).depth <= depth)
+  const end = next === undefined ? lines.length : kids[next].position!.start.line - 1
+  return removeLines(lines, kids[hi].position!.start.line - 1, end)
+}
+
+function walk(node: Nodes, visit: (n: Nodes) => void) {
+  visit(node)
+  if ('children' in node) for (const c of node.children) walk(c as Nodes, visit)
+}
+
+/** Delete one task item, including anything nested under it. null if gone/ambiguous. */
+export function deleteTask(content: string, line: number, raw: string): string | null {
+  const lines = content.split('\n')
+  const want = normalize(raw)
+  const items: ListItem[] = []
+  walk(parseMarkdown(content), n => {
+    if (n.type === 'listItem' && typeof n.checked === 'boolean' && n.position) items.push(n)
+  })
+  const same = (n: ListItem) => normalize(lines[n.position!.start.line - 1] ?? '') === want
+
+  let target = items.find(n => n.position!.start.line === line && same(n))
+  if (!target) {
+    const matches = items.filter(same)
+    if (matches.length !== 1) return null
+    target = matches[0]
+  }
+  return removeLines(lines, target.position!.start.line - 1, target.position!.end.line)
 }
 
 /** Append to the "Inbox" section; create "## Inbox" at the end if there isn't one. */

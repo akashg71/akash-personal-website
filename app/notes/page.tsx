@@ -2,11 +2,12 @@ import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { cookies } from 'next/headers'
-import type { Nodes, List, ListItem, Root } from 'mdast'
+import type { Heading, Nodes, List, ListItem, Root } from 'mdast'
 import {
   GitHubError,
   getLastUpdated,
   getNotesFile,
+  headingTitle,
   isValidSession,
   lastReviewed,
   notesConfig,
@@ -14,8 +15,10 @@ import {
   parseMarkdown,
   REVIEW_LINE_RE,
   SESSION_COOKIE,
+  taskText,
   type NotesFile,
 } from '@/lib/notes'
+import ActionButton from './ActionButton'
 import TaskItem from './TaskItem'
 import ReviewBanner from './ReviewBanner'
 import QuickAdd from './QuickAdd'
@@ -64,16 +67,16 @@ export default async function NotesPage({
       <Shell authed>
         {tabs}
         {missingFile ? (
-          <Notice>
-            {file} doesn&apos;t exist yet.{' '}
-            <a
-              href={`https://github.com/${repo}/new/main?filename=${file}`}
-              className="underline underline-offset-2"
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <p className="text-sm text-stone-700">{file} doesn&apos;t exist yet.</p>
+            <ActionButton
+              url="/api/notes/create"
+              body={{ file }}
+              className="h-11 px-4 rounded-md bg-stone-900 text-stone-50 text-sm font-medium active:bg-stone-700 disabled:opacity-50"
             >
-              Create it on GitHub
-            </a>
-            .
-          </Notice>
+              create it
+            </ActionButton>
+          </div>
         ) : (
           <Notice>
             Couldn&apos;t load {file} from GitHub.
@@ -257,11 +260,44 @@ function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
       flush()
       const line = node.position?.start.line
       section = node.depth >= 2 && line ? { line, raw: ctx.lines[line - 1] ?? '' } : null
+      if (section) {
+        const title = headingTitle(section.raw)
+        const del = (
+          <ActionButton
+            url="/api/notes/delete"
+            body={{ file: ctx.file, kind: 'section', ...section }}
+            confirmText={`Delete the “${title}” section and everything under it?`}
+            ariaLabel={`Delete section ${title}`}
+            className="size-11 -my-3 -mr-3 flex items-center justify-center text-lg font-normal leading-none text-stone-300 hover:text-red-700 active:text-red-700"
+          >
+            ×
+          </ActionButton>
+        )
+        out.push(renderHeading(node, ctx, i, del))
+        return
+      }
     }
     out.push(render(node, ctx, false, i))
   })
   flush()
   return out
+}
+
+function renderHeading(node: Heading, ctx: Ctx, key?: number, action?: ReactNode) {
+  const cls = [
+    '',
+    'text-xl font-semibold text-stone-900 mt-10 mb-3',
+    'text-lg font-semibold text-stone-900 mt-10 mb-2 pb-1 border-b border-stone-200',
+    'text-base font-semibold text-stone-900 mt-7 mb-2',
+  ][node.depth] ?? 'text-sm font-semibold text-stone-700 mt-6 mb-1 uppercase tracking-wide'
+  const Tag = `h${Math.min(node.depth + 1, 6)}` as 'h2' // page owns the single h1
+  const text = node.children.map((c, i) => render(c, ctx, false, i))
+  return (
+    <Tag key={key} className={`${cls} first:mt-0 ${action ? 'flex items-center justify-between gap-2' : ''}`}>
+      {action ? <span className="min-w-0">{text}</span> : text}
+      {action}
+    </Tag>
+  )
 }
 
 function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
@@ -271,16 +307,8 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
   switch (node.type) {
     case 'root':
       return kids(node)
-    case 'heading': {
-      const cls = [
-        '',
-        'text-xl font-semibold text-stone-900 mt-10 mb-3',
-        'text-lg font-semibold text-stone-900 mt-10 mb-2 pb-1 border-b border-stone-200',
-        'text-base font-semibold text-stone-900 mt-7 mb-2',
-      ][node.depth] ?? 'text-sm font-semibold text-stone-700 mt-6 mb-1 uppercase tracking-wide'
-      const Tag = `h${Math.min(node.depth + 1, 6)}` as 'h2' // page owns the single h1
-      return <Tag key={key} className={`${cls} first:mt-0`}>{kids(node)}</Tag>
-    }
+    case 'heading':
+      return renderHeading(node, ctx, key)
     case 'paragraph': {
       // The "Last reviewed: …" stamp is shown by ReviewBanner, not inline.
       const pos = node.position
@@ -382,7 +410,15 @@ function renderItem(li: ListItem, ctx: Ctx, tight: boolean, key: number) {
   // or state changed upstream remounts and picks up the server's checked state,
   // instead of a stale useState surviving on a different item.
   return (
-    <TaskItem key={`${line}:${raw}`} file={ctx.file} line={line} raw={raw} initialChecked={li.checked} label={label}>
+    <TaskItem
+      key={`${line}:${raw}`}
+      file={ctx.file}
+      line={line}
+      raw={raw}
+      title={taskText(raw)}
+      initialChecked={li.checked}
+      label={label}
+    >
       {body.length ? body : undefined}
     </TaskItem>
   )

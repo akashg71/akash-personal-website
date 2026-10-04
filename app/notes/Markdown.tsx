@@ -2,22 +2,28 @@
 // Deliberately not MDX: notes are data, not code. A stray `{` or `<` must not
 // break rendering, and raw HTML nodes are shown as text, never injected.
 import type { ReactNode } from 'react'
-import type { Heading, Nodes, List, ListItem, Root } from 'mdast'
+import type { Heading, Image, Nodes, List, ListItem, Root, WikiLink } from 'mdast'
+import { type AssetIndex, imageType, imageUrl, imageWidth, resolveEmbed, resolveImage, splitAlt } from '@/lib/assets'
 import { headingTitle, parseMarkdown, REVIEW_LINE_RE, taskSource, taskText } from '@/lib/notes'
 import { addKey, sectionsKey } from '@/lib/optimistic'
 import ActionButton from './ActionButton'
 import EditableText from './EditableText'
 import InlineAdd from './InlineAdd'
+import NoteImage from './NoteImage'
 import { PendingItems, PendingSections } from './Pending'
 import Properties from './Properties'
 import TaskItem from './TaskItem'
 
-type Ctx = { lines: string[]; file: string; sha: string }
+type Ctx = { lines: string[]; file: string; sha: string; assets: AssetIndex; inLink?: boolean }
 type SectionRef = { line: number; raw: string }
 
-/** `sha` is the file version being rendered: optimistic changes hide once it includes them. */
-export function renderNote(content: string, file: string, sha: string): ReactNode[] {
-  return renderRoot(parseMarkdown(content), { lines: content.split('\n'), file, sha })
+/**
+ * `sha` is the file version being rendered: optimistic changes hide once it
+ * includes them. `assets` are the vault's images, which the note's images
+ * resolve against.
+ */
+export function renderNote(content: string, file: string, sha: string, assets: AssetIndex = new Map()): ReactNode[] {
+  return renderRoot(parseMarkdown(content), { lines: content.split('\n'), file, sha, assets })
 }
 
 function safeHref(url: string) {
@@ -182,7 +188,7 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
       const href = safeHref(node.url)
       return href ? (
         <a key={key} href={href} className="underline underline-offset-2 decoration-stone-400 hover:decoration-stone-900">
-          {kids(node)}
+          {node.children.map((c, i) => render(c, { ...ctx, inLink: true }, tight, i))}
         </a>
       ) : (
         <span key={key}>{kids(node)}</span>
@@ -203,7 +209,9 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
     case 'html':
       return node.value
     case 'image':
-      return node.alt ?? ''
+      return renderImage(node, ctx, key)
+    case 'wikiLink':
+      return renderWikiLink(node, ctx, key)
     case 'table':
       return (
         <div key={key} className="my-4 overflow-x-auto">
@@ -219,6 +227,26 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
     default:
       return 'children' in node ? kids(node as { children: Nodes[] }) : null
   }
+}
+
+/** ![alt](src): an http(s) URL as is, a file in the vault through the image route. */
+function renderImage(node: Image, ctx: Ctx, key?: number) {
+  const { alt, width } = splitAlt(node.alt ?? '')
+  if (/^https?:\/\//i.test(node.url)) return <NoteImage key={key} url={node.url} alt={alt} width={width} inLink={ctx.inLink} />
+  if (/^[a-z][a-z\d+.-]*:/i.test(node.url)) return alt // data:, javascript: and the like stay text
+  const path = resolveImage(ctx.file, node.url, ctx.assets)
+  const url = path && imageUrl(path, ctx.assets.get(path)!)
+  return <NoteImage key={key} url={url} alt={alt} width={width} missing={node.url} inLink={ctx.inLink} />
+}
+
+/** An Obsidian ![[image.png|300]] embed shows the image; other [[links]] stay as written for now. */
+function renderWikiLink(node: WikiLink, ctx: Ctx, key?: number) {
+  if (!node.embed || !imageType(node.target)) return `${node.embed ? '!' : ''}[[${node.value.replace(/\\\|/g, '|')}]]`
+  const path = resolveEmbed(ctx.file, node.target, ctx.assets)
+  const url = path && imageUrl(path, ctx.assets.get(path)!)
+  const width = imageWidth(node.alias ?? '')
+  const alt = (!width && node.alias) || node.target.replace(/^.*\//, '')
+  return <NoteImage key={key} url={url} alt={alt} width={width} missing={node.target} inLink={ctx.inLink} />
 }
 
 function renderList(list: List, ctx: Ctx, key?: number) {

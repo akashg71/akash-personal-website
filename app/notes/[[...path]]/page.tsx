@@ -176,7 +176,7 @@ export default async function NotesPage({
     body = (
       <NotesView key={file} file={file} content={content} sha={sha} meta={meta} startEditing={edit === '1'}>
         {file === TODO_FILE && <ReviewBanner {...reviewStatus(content)} />}
-        <div className="text-[16px] leading-relaxed text-stone-800">{renderNote(content, file, sha)}</div>
+        <div className="text-[16px] leading-relaxed text-stone-800">{renderNote(content, file, sha, vault.assets)}</div>
         <div className="mt-10 pt-4 border-t border-stone-200">
           <InlineAdd
             trigger="new section"

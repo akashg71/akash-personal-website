@@ -1,13 +1,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Nodes, WikiLink } from 'mdast'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
-import { gfm } from 'micromark-extension-gfm'
-import { isWikiValue, parseWikiValue, wikiLabel, wikiLinkFromMarkdown, wikiLinkSyntax } from '../../lib/wikilink'
-
-const parse = (md: string) =>
-  fromMarkdown(md, { extensions: [gfm(), wikiLinkSyntax()], mdastExtensions: [gfmFromMarkdown(), wikiLinkFromMarkdown()] })
+import { parseMarkdown as parse } from '../../lib/markdown' // the parser behind the view and every line edit
+import { isWikiValue, parseWikiValue, wikiLabel } from '../../lib/wikilink'
 
 function links(md: string): WikiLink[] {
   const found: WikiLink[] = []

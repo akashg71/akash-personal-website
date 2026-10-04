@@ -7,12 +7,14 @@ import { frontmatter } from 'micromark-extension-frontmatter'
 import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import type { Root } from 'mdast'
+import { wikiLinkFromMarkdown, wikiLinkSyntax } from './wikilink'
 
 // Syntax extensions and their mdast counterparts, in matching order. New
-// syntax (wiki links, math) goes on the end of both lists. Frontmatter is
-// "yaml" only: lib/frontmatter.ts finds the same block without a parser.
-const extensions = [gfm(), frontmatter('yaml')]
-const mdastExtensions = [gfmFromMarkdown(), frontmatterFromMarkdown('yaml')]
+// syntax (math) goes on the end of both lists. Frontmatter is "yaml" only:
+// lib/frontmatter.ts finds the same block without a parser. Wiki links are
+// inline, so they never move a line.
+const extensions = [gfm(), frontmatter('yaml'), wikiLinkSyntax()]
+const mdastExtensions = [gfmFromMarkdown(), frontmatterFromMarkdown('yaml'), wikiLinkFromMarkdown()]
 
 export function parseMarkdown(content: string): Root {
   return fromMarkdown(content, { extensions, mdastExtensions })

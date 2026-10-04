@@ -2,6 +2,9 @@
 // GITHUB_TOKEN / NOTES_PASSWORD have no NEXT_PUBLIC_ prefix so Next won't inline
 // them into a client bundle, but the fetch helpers would still be dead weight there.
 import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
+import { fromMarkdown } from 'mdast-util-from-markdown'
+import { gfm } from 'micromark-extension-gfm'
+import { gfmFromMarkdown } from 'mdast-util-gfm'
 
 export const NOTES_FILES = { todo: 'todo.md', progress: 'progress.md' } as const
 export type NotesFile = (typeof NOTES_FILES)[keyof typeof NOTES_FILES]
@@ -172,6 +175,37 @@ export async function editNotesFile(file: NotesFile, edit: (content: string) => 
   throw new Error('unreachable')
 }
 
+/**
+ * Whole-file save from the source editor. Unlike editNotesFile there is no
+ * retry: the client's text was based on `sha`, so a 409 means the file changed
+ * under the editor and retrying would silently discard that change.
+ */
+export async function saveNotesFile(file: NotesFile, content: string, sha: string): Promise<Response> {
+  try {
+    await putNotesFile(file, content, sha, `edit: ${file}`)
+    return Response.json({ ok: true })
+  } catch (err) {
+    if (err instanceof GitHubError && err.status === 409) {
+      return Response.json(
+        { error: `${file} changed since you opened the editor. Copy your text, reload, and re-apply.` },
+        { status: 409 },
+      )
+    }
+    return Response.json(
+      { error: `Save failed: ${err instanceof Error ? err.message : 'unknown error'}` },
+      { status: 502 },
+    )
+  }
+}
+
+// ── Markdown structure ──────────────────────────────────────
+
+export function parseMarkdown(content: string) {
+  return fromMarkdown(content, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
+}
+
+const headingTitle = (line: string) => line.trim().replace(/^#{1,6}[ \t]*/, '').replace(/[ \t]+#+$/, '').trim()
+
 // ── Line-level edits (pure; unit-tested) ────────────────────
 // All edits split on \n only: CRLF files keep their \r on each line, and inserted
 // lines copy the file's line ending so the file never ends up mixed.
@@ -225,36 +259,93 @@ export function patchTask(content: string, line: number, raw: string, checked: b
   return { kind: 'patched', content: lines.join('\n'), text: taskText(lines[idx]) }
 }
 
-/**
- * Append "- [ ] text" as the last line of the "## Inbox" section (any heading
- * level; the section ends at the next heading of the same or higher level).
- * Creates the section at the end of the file if it doesn't exist.
- */
-export function addToInbox(content: string, text: string): string {
+// Sections are top-level headings in the parsed tree; a section's own content is
+// everything up to the next heading of *any* level. That's exactly where the
+// page renders its "+ add item" control, so an add lands where the user tapped.
+// Using the parse tree (not a line regex) means a "# comment" inside a fenced
+// code block is never mistaken for a heading.
+
+export type HeadingRef = { line: number; raw: string } // 1-based line + raw text, like tasks
+
+function rootHeadings(content: string) {
+  const kids = parseMarkdown(content).children
+  return { kids, heads: kids.flatMap((n, i) => (n.type === 'heading' && n.position ? [i] : [])) }
+}
+
+function insertTask(content: string, kids: ReturnType<typeof rootHeadings>['kids'], hi: number, text: string) {
   const eol = eolOf(content)
-  const item = `- [ ] ${text}${eol}`
   const lines = content.split('\n')
-  const h = lines.findIndex(l => /^#{1,6}[ \t]+inbox[ \t]*#*$/i.test(l.trimEnd()))
+  let last = hi
+  for (let i = hi + 1; i < kids.length && kids[i].type !== 'heading'; i++) last = i
 
-  if (h === -1) {
-    return `${content.trimEnd()}${eol}\n${eol}\n## Inbox${eol}\n${eol}\n${item}\n`
+  if (last === hi) {
+    // Empty section: replace the blank run after the heading with blank / item [/ blank].
+    const at = kids[hi].position!.end.line
+    let j = at
+    while (j < lines.length && lines[j].trim() === '') j++
+    const body = [eol, `- [ ] ${text}${eol}`]
+    if (j < lines.length) body.push(eol)  // separate from the next heading
+    else if (j > at) body.push('')        // keep the file's trailing newline
+    lines.splice(at, j - at, ...body)
+    return lines.join('\n')
   }
 
-  const level = lines[h].match(/^#+/)![0].length
-  let end = lines.length
-  for (let i = h + 1; i < lines.length; i++) {
-    const m = lines[i].match(/^(#{1,6})[ \t]/)
-    if (m && m[1].length <= level) { end = i; break }
-  }
-  let last = h
-  for (let i = h + 1; i < end; i++) if (lines[i].trim() !== '') last = i
-
-  if (last === h) {
-    // Empty section: normalise its body to blank / item / blank.
-    lines.splice(h + 1, end - h - 1, eol, item, eol)
+  const node = kids[last]
+  const at = node.position!.end.line
+  if (node.type === 'list' && !node.ordered) {
+    // Join the existing list, matching its indent and bullet character.
+    const m = lines[node.position!.start.line - 1].match(/^([ \t]*)([-*+])/)
+    lines.splice(at, 0, `${m?.[1] ?? ''}${m?.[2] ?? '-'} [ ] ${text}${eol}`)
   } else {
-    lines.splice(last + 1, 0, item)
+    lines.splice(at, 0, eol, `- [ ] ${text}${eol}`)
   }
+  return lines.join('\n')
+}
+
+/** Append "- [ ] text" to the section under `heading`. null if the heading is gone/ambiguous. */
+export function addToSection(content: string, heading: HeadingRef, text: string): string | null {
+  const { kids, heads } = rootHeadings(content)
+  const lines = content.split('\n')
+  const raw = heading.raw.trimEnd()
+  const lineOf = (i: number) => lines[kids[i].position!.start.line - 1].trimEnd()
+
+  let hi = heads.find(i => kids[i].position!.start.line === heading.line && lineOf(i) === raw)
+  if (hi === undefined) {
+    const matches = heads.filter(i => lineOf(i) === raw) // heading moved: unique text match
+    if (matches.length !== 1) return null
+    hi = matches[0]
+  }
+  return insertTask(content, kids, hi, text)
+}
+
+/** Append to the "Inbox" section; create "## Inbox" at the end if there isn't one. */
+export function addToInbox(content: string, text: string): string {
+  const { kids, heads } = rootHeadings(content)
+  const lines = content.split('\n')
+  const hi = heads.find(i => headingTitle(lines[kids[i].position!.start.line - 1]).toLowerCase() === 'inbox')
+  if (hi !== undefined) return insertTask(content, kids, hi, text)
+  const eol = eolOf(content)
+  return `${content.trimEnd()}${eol}\n${eol}\n## Inbox${eol}\n${eol}\n- [ ] ${text}${eol}\n`
+}
+
+/** Add "## title" before the Inbox section (Inbox stays last), else at the end. null if it exists. */
+export function addSection(content: string, title: string): string | null {
+  const eol = eolOf(content)
+  const { kids, heads } = rootHeadings(content)
+  const lines = content.split('\n')
+  const titles = heads.map(i => headingTitle(lines[kids[i].position!.start.line - 1]).toLowerCase())
+  if (titles.includes(title.toLowerCase())) return null
+
+  const heading = `## ${title}${eol}`
+  const inbox = titles.indexOf('inbox')
+  if (inbox === -1) {
+    if (content.trim() === '') return `${heading}\n`
+    return `${content.trimEnd()}${eol}\n${eol}\n${heading}\n`
+  }
+  const k = kids[heads[inbox]].position!.start.line - 1
+  const block = [heading, eol]
+  if (k > 0 && lines[k - 1].trim() !== '') block.unshift(eol)
+  lines.splice(k, 0, ...block)
   return lines.join('\n')
 }
 

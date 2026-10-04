@@ -2,10 +2,7 @@ import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { cookies } from 'next/headers'
-import type { Nodes, List, ListItem } from 'mdast'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfm } from 'micromark-extension-gfm'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
+import type { Nodes, List, ListItem, Root } from 'mdast'
 import {
   GitHubError,
   getLastUpdated,
@@ -14,6 +11,7 @@ import {
   lastReviewed,
   notesConfig,
   NOTES_FILES,
+  parseMarkdown,
   REVIEW_LINE_RE,
   SESSION_COOKIE,
   type NotesFile,
@@ -21,6 +19,8 @@ import {
 import TaskItem from './TaskItem'
 import ReviewBanner from './ReviewBanner'
 import QuickAdd from './QuickAdd'
+import InlineAdd from './InlineAdd'
+import NotesView from './NotesView'
 
 export const metadata: Metadata = {
   title: 'notes',
@@ -51,10 +51,12 @@ export default async function NotesPage({
   const tabs = <Tabs active={file} />
 
   let content: string
+  let sha: string
   let updated: string | null
   try {
     const [res, date] = await Promise.all([getNotesFile(file), getLastUpdated(file)])
     content = res.content
+    sha = res.sha
     updated = date
   } catch (err) {
     const missingFile = err instanceof GitHubError && err.status === 404 && file !== NOTES_FILES.todo
@@ -83,38 +85,48 @@ export default async function NotesPage({
     )
   }
 
-  const tree = fromMarkdown(content, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  })
   const ctx: Ctx = { lines: content.split('\n'), file }
+
+  const meta = (
+    <>
+      {updated ? (
+        <time dateTime={updated} title={new Date(updated).toUTCString()}>
+          updated {relativeTime(updated)}
+        </time>
+      ) : (
+        'last update unknown'
+      )}
+      {' · '}
+      <a
+        href={`https://github.com/${repo}/blob/HEAD/${file}`}
+        className="underline underline-offset-2 hover:text-stone-700"
+      >
+        open on GitHub
+      </a>
+    </>
+  )
 
   return (
     <Shell authed>
       {tabs}
-      <p className="text-xs text-stone-400 mb-6">
-        {updated ? (
-          <time dateTime={updated} title={new Date(updated).toUTCString()}>
-            updated {relativeTime(updated)}
-          </time>
-        ) : (
-          'last update unknown'
+      <NotesView file={file} content={content} sha={sha} meta={meta}>
+        {file === NOTES_FILES.todo && (
+          <>
+            <ReviewBanner {...reviewStatus(content)} />
+            <QuickAdd />
+          </>
         )}
-        {' · '}
-        <a
-          href={`https://github.com/${repo}/blob/HEAD/${file}`}
-          className="underline underline-offset-2 hover:text-stone-700"
-        >
-          open on GitHub
-        </a>
-      </p>
-      {file === NOTES_FILES.todo && (
-        <>
-          <ReviewBanner {...reviewStatus(content)} />
-          <QuickAdd />
-        </>
-      )}
-      <div className="text-[16px] leading-relaxed text-stone-800">{render(tree, ctx)}</div>
+        <div className="text-[16px] leading-relaxed text-stone-800">{renderRoot(parseMarkdown(content), ctx)}</div>
+        <div className="mt-10 pt-4 border-t border-stone-200">
+          <InlineAdd
+            trigger="new section"
+            placeholder="Section name, e.g. Reading list"
+            url="/api/notes/section"
+            body={{ file }}
+            field="title"
+          />
+        </div>
+      </NotesView>
     </Shell>
   )
 }
@@ -207,6 +219,49 @@ type Ctx = { lines: string[]; file: NotesFile }
 
 function safeHref(url: string) {
   return /^(https?:|mailto:|\/|#)/i.test(url) ? url : undefined
+}
+
+/**
+ * Top level: render each node, and after each ##+ section's own content (i.e.
+ * just before the next heading of any level, or at the end) put a "+ add item"
+ * for that section. lib/notes.ts addToSection inserts at exactly that point.
+ * The h1 gets none — it's the document title.
+ */
+function renderRoot(root: Root, ctx: Ctx): ReactNode[] {
+  const out: ReactNode[] = []
+  const seen = new Map<string, number>()
+  let section: { line: number; raw: string } | null = null
+
+  const flush = () => {
+    if (!section) return
+    // Keyed by heading text (not line) so an open input survives the refresh
+    // after an add shifts every line below it.
+    const n = (seen.get(section.raw) ?? 0) + 1
+    seen.set(section.raw, n)
+    out.push(
+      <div key={`add:${section.raw}:${n}`} className="mt-1 mb-2">
+        <InlineAdd
+          trigger="add item"
+          placeholder="New item"
+          url="/api/notes/add"
+          body={{ file: ctx.file, heading: section }}
+          field="text"
+          keepOpen
+        />
+      </div>,
+    )
+  }
+
+  root.children.forEach((node, i) => {
+    if (node.type === 'heading') {
+      flush()
+      const line = node.position?.start.line
+      section = node.depth >= 2 && line ? { line, raw: ctx.lines[line - 1] ?? '' } : null
+    }
+    out.push(render(node, ctx, false, i))
+  })
+  flush()
+  return out
 }
 
 function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {

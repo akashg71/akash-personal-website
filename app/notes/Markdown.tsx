@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { Heading, Nodes, List, ListItem, Root } from 'mdast'
 import { headingTitle, parseMarkdown, REVIEW_LINE_RE, taskSource, taskText } from '@/lib/notes'
 import ActionButton from './ActionButton'
+import CodeBlock from './CodeBlock'
 import EditableText from './EditableText'
 import InlineAdd from './InlineAdd'
 import TaskItem from './TaskItem'
@@ -148,11 +149,7 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
         </code>
       )
     case 'code':
-      return (
-        <pre key={key} className="my-4 p-4 rounded-md bg-stone-900 text-stone-100 text-sm overflow-x-auto">
-          <code>{node.value}</code>
-        </pre>
-      )
+      return <CodeBlock key={key} code={node.value} lang={node.lang} />
     case 'link': {
       const href = safeHref(node.url)
       return href ? (

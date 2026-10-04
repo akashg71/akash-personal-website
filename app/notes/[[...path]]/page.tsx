@@ -18,6 +18,7 @@ import {
   readNote,
   SESSION_COOKIE,
   TODO_FILE,
+  vaultOf,
   warmSnapshot,
 } from '@/lib/notes'
 import { sectionsKey } from '@/lib/optimistic'
@@ -84,7 +85,7 @@ export default async function NotesPage({
   // after answering.
   const snap = await currentSnapshot()
   if (!snap) after(warmSnapshot)
-  const loadVault = () => (snap ? Promise.resolve({ notes: snap.notes.map(e => e.path), folders: snap.folders }) : listVault())
+  const loadVault = () => (snap ? Promise.resolve(vaultOf(snap)) : listVault())
   const noteFetch = (p: string) => {
     const held = snap && readNote(snap, p)
     if (held) return Promise.all([held, lastUpdated(p, held.sha, () => getLastUpdated(p))])

@@ -109,7 +109,8 @@ export { getTokenExpiration } from './notes/github'
 import { ghFetch } from './notes/github'
 // Pages read the vault from the snapshot; every write below is applied to it.
 export { currentSnapshot, lastUpdated, readNote, warmSnapshot } from './notes/snapshot'
-import { applyWrite } from './notes/snapshot'
+import { applyWrite, vaultEntries, type Snapshot, type TreeEntry } from './notes/snapshot'
+import type { AssetIndex } from './assets'
 
 async function gh(path: string, init: { method?: string; body?: string } = {}) {
   let res: Response
@@ -154,24 +155,46 @@ export async function getLastUpdated(file: NotesFile): Promise<string | null> {
 }
 
 /**
- * Every note and folder in one call: the Git Trees API with recursive=1 (the
- * Contents API would need one request per directory). Dot-paths (.gitkeep,
- * .obsidian, .github) and non-markdown files are hidden.
+ * A blob's bytes by sha (an image), or null if the repo has no such blob.
+ * Up to 4 MB is read whole, so a slow client can't stretch the download past
+ * ghFetch's 10s timeout; anything bigger is streamed through.
  */
-export async function listVault(): Promise<{ notes: string[]; folders: string[] }> {
-  let data: { tree?: { path: string; type: string }[] }
+export async function getBlob(sha: string): Promise<{ body: ArrayBuffer | ReadableStream<Uint8Array>; size: number | null } | null> {
+  let res: Response
+  try {
+    res = await ghFetch(`/git/blobs/${sha}`, { headers: { Accept: 'application/vnd.github.raw+json' } })
+  } catch {
+    throw new GitHubError(0, 'GitHub unreachable or timed out')
+  }
+  if (res.status === 404 || res.status === 422) return null
+  if (!res.ok || !res.body) throw new GitHubError(res.status, `GitHub ${res.status}`)
+  const size = Number(res.headers.get('content-length')) || null
+  if (size !== null && size > 4_000_000) return { body: res.body, size }
+  const body = await res.arrayBuffer()
+  return { body, size: body.byteLength }
+}
+
+/** The vault as the page shows it: note paths, folders, and image path → blob sha. */
+export type Vault = { notes: string[]; folders: string[]; assets: AssetIndex }
+
+export function vaultOf({ notes, folders, assets }: Pick<Snapshot, 'notes' | 'folders' | 'assets'>): Vault {
+  return { notes: notes.map(e => e.path), folders, assets: new Map(assets.map(e => [e.path, e.sha])) }
+}
+
+/**
+ * Every note, folder and image in one call: the Git Trees API with
+ * recursive=1 (the Contents API would need one request per directory), read
+ * as the snapshot reads it (vaultEntries).
+ */
+export async function listVault(): Promise<Vault> {
+  let data: { tree?: TreeEntry[] }
   try {
     data = await gh('/git/trees/HEAD?recursive=1')
   } catch (err) {
-    if (err instanceof GitHubError && (err.status === 409 || err.status === 404)) return { notes: [], folders: [] } // empty repo
+    if (err instanceof GitHubError && (err.status === 409 || err.status === 404)) return vaultOf({ notes: [], folders: [], assets: [] }) // empty repo
     throw err
   }
-  const visible = (p: string) => !p.split('/').some(s => s.startsWith('.'))
-  const entries = (data.tree ?? []).filter(e => visible(e.path))
-  return {
-    notes: entries.filter(e => e.type === 'blob' && e.path.toLowerCase().endsWith('.md')).map(e => e.path),
-    folders: entries.filter(e => e.type === 'tree').map(e => e.path),
-  }
+  return vaultOf(vaultEntries(data.tree ?? []))
 }
 
 /** Delete a note. The Contents API needs the blob sha, so read it first. */

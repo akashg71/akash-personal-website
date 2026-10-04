@@ -10,7 +10,7 @@ const fake = fakeClient(E2E_FAKE_URL)
 
 test('every API route but login and logout answers 401 without a valid session', async () => {
   await fake.reset({})
-  assert.ok(PROTECTED_ROUTES.length >= 8, PROTECTED_ROUTES.map(describeRoute).join())
+  assert.ok(PROTECTED_ROUTES.length >= 9, PROTECTED_ROUTES.map(describeRoute).join())
   for (const cookie of [null, `notes_session=${Date.now() + 60_000}.forged`]) {
     for (const route of PROTECTED_ROUTES) {
       const post = route.method === 'POST'

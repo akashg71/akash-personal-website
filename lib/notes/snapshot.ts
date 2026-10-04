@@ -4,10 +4,12 @@
 // is cached by blob sha, so a new commit downloads only the notes it changed.
 // Server-only.
 import { createHash } from 'node:crypto'
+import { imageType } from '../assets'
 import { ghFetch } from './github'
 
 export type Entry = { path: string; sha: string; size: number }
-export type Snapshot = { commit: string; etag: string | null; notes: Entry[]; folders: string[] }
+/** `assets`: the vault's images, by path and blob sha (never downloaded here). */
+export type Snapshot = { commit: string; etag: string | null; notes: Entry[]; folders: string[]; assets: Entry[] }
 export type TreeEntry = { path: string; mode: string; type: string; sha: string; size?: number }
 export class SnapshotUnavailable extends Error {}
 
@@ -40,19 +42,32 @@ export function resetSnapshot() {
 const hidden = (path: string) => path.split('/').some(s => s.startsWith('.'))
 const isNote = (path: string) => /\.md$/i.test(path) && !hidden(path)
 
-/** The sha git gives `text` stored as a blob. */
-export function gitBlobSha(text: string) {
-  const bytes = Buffer.from(text, 'utf8')
+const isAsset = (path: string) => imageType(path) !== null && !hidden(path)
+
+/** The sha git gives `content` stored as a blob (text as UTF-8). */
+export function gitBlobSha(content: string | Uint8Array) {
+  const bytes = typeof content === 'string' ? Buffer.from(content, 'utf8') : content
   return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
 }
 
-/** Notes and folders in a recursive tree, as listVault shows them: no dot-paths; symlinks aren't notes. */
+/**
+ * Notes, folders and images in a recursive tree: no dot-paths, and symlinks
+ * are neither. A folder is listed if it holds a note or a .gitkeep (made here
+ * and still empty), so a folder of images alone, like attachments/, stays out
+ * of the file tree.
+ */
 export function vaultEntries(tree: TreeEntry[]) {
+  const files = tree.filter(e => e.type === 'blob' && e.mode !== '120000')
+  const entry = (e: TreeEntry): Entry => ({ path: e.path, sha: e.sha, size: e.size ?? 0 })
+  const shown = new Set<string>()
+  for (const { path } of files) {
+    if (!isNote(path) && !/(^|\/)\.gitkeep$/.test(path)) continue
+    for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) shown.add(path.slice(0, i))
+  }
   return {
-    notes: tree
-      .filter(e => e.type === 'blob' && e.mode !== '120000' && isNote(e.path))
-      .map(e => ({ path: e.path, sha: e.sha, size: e.size ?? 0 })),
-    folders: tree.filter(e => e.type === 'tree' && !hidden(e.path)).map(e => e.path),
+    notes: files.filter(e => isNote(e.path)).map(entry),
+    folders: tree.filter(e => e.type === 'tree' && !hidden(e.path) && shown.has(e.path)).map(e => e.path),
+    assets: files.filter(e => isAsset(e.path)).map(entry),
   }
 }
 
@@ -139,7 +154,7 @@ async function sync(): Promise<Snapshot> {
     headers: { Accept: 'application/vnd.github.sha', ...(prev?.etag ? { 'If-None-Match': prev.etag } : {}) },
   })
   if (head.status === 304 && prev) return prev
-  if (head.status === 409) return keep(writes, { commit: '', etag: null, notes: [], folders: [] }) // empty repo
+  if (head.status === 409) return keep(writes, { commit: '', etag: null, notes: [], folders: [], assets: [] }) // empty repo
   if (!head.ok) throw new SnapshotUnavailable(`HEAD: HTTP ${head.status}`)
   const commit = (await head.text()).trim()
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new SnapshotUnavailable('HEAD: not a commit sha')
@@ -151,9 +166,9 @@ async function sync(): Promise<Snapshot> {
   if (!res.ok) throw new SnapshotUnavailable(`tree: HTTP ${res.status}`)
   const tree = (await res.json()) as { tree: TreeEntry[]; truncated?: boolean }
   if (tree.truncated) throw new SnapshotUnavailable('tree truncated')
-  const { notes, folders } = vaultEntries(tree.tree)
+  const { notes, folders, assets } = vaultEntries(tree.tree)
   await fetchBlobs(notes.filter(e => !state.blobs.has(e.sha)))
-  return keep(writes, { commit, etag, notes, folders })
+  return keep(writes, { commit, etag, notes, folders, assets })
 }
 
 /** The vault at HEAD: one conditional request when nothing changed. Concurrent callers share a sync. */
@@ -237,6 +252,7 @@ export function applyWrite(path: string, text: string | null, res: ContentsWrite
   const folders = new Set(snap.folders)
   for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) folders.add(path.slice(0, i))
   state.snap = {
+    ...snap,
     commit: res.commit.sha,
     etag: `"${res.commit.sha}"`, // what commits/HEAD sends as its ETag
     notes: snap.notes.some(e => e.path === path) ? snap.notes.map(e => (e.path === path ? entry : e)) : [...snap.notes, entry],

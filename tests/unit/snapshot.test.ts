@@ -66,7 +66,8 @@ describe('snapshot sync', () => {
     const snap = await getSnapshot()
     assert.deepEqual(calls(), ['commits.get 200', 'git.blobs.get 200', 'git.trees.get 200', 'graphql 200', 'graphql 200'])
     assert.equal(snap.notes.length, 153)
-    assert.deepEqual(snap.folders.sort(), ['Big', 'Notes', 'img'])
+    assert.deepEqual(snap.folders.sort(), ['Big', 'Notes'], 'img/ holds no note')
+    assert.deepEqual(snap.assets, [{ path: 'img/cat.png', sha: fake.repo.files.get('img/cat.png').sha, size: 3 }])
     assert.equal(readNote(snap, 'Big/huge.md')?.content, seed['Big/huge.md'])
     assert.equal(readNote(snap, 'bom.md')?.content, seed['bom.md'], 'BOM kept, like getNotesFile')
     assert.equal(readNote(snap, 'img/cat.png'), null)
@@ -139,7 +140,7 @@ describe('snapshot sync', () => {
 
   test('an empty repo is an empty vault', async () => {
     fake.reset({})
-    assert.deepEqual(await getSnapshot(), { commit: '', etag: null, notes: [], folders: [] })
+    assert.deepEqual(await getSnapshot(), { commit: '', etag: null, notes: [], folders: [], assets: [] })
   })
 
   test('the token expiry survives a response without the header', async () => {
@@ -165,7 +166,21 @@ describe('snapshot helpers', () => {
       e('Dir', 'tree', '040000'), e('Dir/.hidden.md'), e('Dir/link.md', 'blob', '120000'), e('sub', 'commit', '160000'),
     ])
     assert.deepEqual(notes.map(n => n.path), ['a.md', 'B.MD'])
-    assert.deepEqual(folders, ['Dir'])
+    assert.deepEqual(folders, [])
+  })
+
+  test('vaultEntries: images are assets; a folder shows if it holds a note or a .gitkeep', () => {
+    const e = (path: string, type = 'blob', mode = '100644') => ({ path, type, mode, sha: path, size: 1 })
+    const dir = (path: string) => e(path, 'tree', '040000')
+    const { notes, folders, assets } = vaultEntries([
+      e('pic.PNG'), dir('attachments'), e('attachments/a.webp'), e('attachments/b.pdf'),
+      dir('A'), dir('A/B'), e('A/B/n.md'), dir('Empty'), e('Empty/.gitkeep'), dir('.obsidian'), e('.obsidian/x.png'),
+      e('link.png', 'blob', '120000'),
+    ])
+    assert.deepEqual(notes.map(n => n.path), ['A/B/n.md'])
+    assert.deepEqual(folders, ['A', 'A/B', 'Empty'])
+    assert.deepEqual(assets.map(a => a.path), ['pic.PNG', 'attachments/a.webp'])
+    assert.deepEqual(assets[0], { path: 'pic.PNG', sha: 'pic.PNG', size: 1 })
   })
 
   test('graphqlBatches: at most 100 blobs and about 1 MB each; big blobs left out', () => {

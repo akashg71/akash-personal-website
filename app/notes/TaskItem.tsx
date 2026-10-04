@@ -31,6 +31,7 @@ export default function TaskItem({
   const [error, setError] = useState<string | null>(null)
 
   function toggle() {
+    if (pending) return // aria-disabled, not disabled: a disabled box drops focus, losing the j/k place
     const next = !checked
     setChecked(next) // optimistic
     setError(null)
@@ -59,16 +60,20 @@ export default function TaskItem({
 
   return (
     <li className="list-none">
-      <div className="flex items-start">
+      {/* data-task-row: what j/k move between (Shortcuts.tsx); the row lights up when they focus its box. */}
+      <div
+        data-task-row
+        className="flex items-start -mx-3 px-3 rounded-md scroll-my-16 has-[>label>input:focus-visible]:bg-stone-200/60"
+      >
         {/* Only the checkbox ticks (44px target); tapping the text edits it. */}
         <label className="size-11 shrink-0 -ml-3 flex items-center justify-center cursor-pointer rounded-md active:bg-stone-100">
           <input
             type="checkbox"
             checked={checked}
             onChange={toggle}
-            disabled={pending}
+            aria-disabled={pending || undefined}
             aria-label={title}
-            className="size-5 accent-stone-800 cursor-pointer"
+            className="size-5 accent-stone-800 cursor-pointer aria-disabled:opacity-50"
           />
         </label>
         <div className="flex-1 min-w-0 py-2.5">

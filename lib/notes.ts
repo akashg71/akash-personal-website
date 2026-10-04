@@ -17,7 +17,9 @@ export const SESSION_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
 // repo-relative ("Physics/Mechanics.md"). Validated on every request: the token
 // is scoped to the repo, but a path is still never trusted.
 
-const SEGMENT_RE = /^[\p{L}\p{N} _\-.,()'&+!]+$/u
+// \p{M}: combining marks are part of letters in many scripts (Hindi vowel
+// signs, or an "é" that macOS stored as e + U+0301).
+const SEGMENT_RE = /^[\p{L}\p{M}\p{N} _\-.,()'&+!]+$/u
 
 function validSegments(path: string) {
   const segs = path.split('/')

@@ -1,5 +1,6 @@
 // In-memory GitHub for the e2e suite. Serves the REST endpoints lib/notes.ts
-// calls (contents GET/PUT/DELETE, git/trees, commits) over plain HTTP, with
+// calls (contents GET/PUT/DELETE, git/trees, git/blobs, commits) and the one
+// GraphQL query the vault snapshot sends, over plain HTTP, with
 // real git blob/tree/commit shas so the sha checks behave like the real thing.
 // Test files run in other processes and drive it through the /__fake/* control
 // API (see `control` below); tests/e2e/client.mjs wraps that API.
@@ -47,6 +48,7 @@ function buildTrees(files) {
 
 class Repo {
   files = new Map() // path → { bytes, sha }
+  blobs = new Map() // sha → bytes, for every blob ever committed
   commits = [] // oldest first: { sha, tree, parent, message, date, paths }
 
   get head() {
@@ -62,13 +64,17 @@ class Repo {
     for (const [path, bytes] of changes) {
       if (bytes === null) this.files.delete(path)
       else this.files.set(path, { bytes, sha: gitSha('blob', bytes) })
+      if (bytes !== null) this.blobs.set(gitSha('blob', bytes), bytes)
     }
     const parent = this.head
     const tree = buildTrees(this.files).shas.get('')
     const who = `Fake GitHub <fake@example.com> ${Math.floor(Date.now() / 1000)} +0000`
     const body = `tree ${tree}\n${parent ? `parent ${parent.sha}\n` : ''}author ${who}\ncommitter ${who}\n\n${message}\n`
     const date = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
-    const commit = { sha: gitSha('commit', Buffer.from(body)), tree, parent: parent?.sha ?? null, message, date, paths: changes.map(c => c[0]) }
+    const commit = {
+      sha: gitSha('commit', Buffer.from(body)), tree, parent: parent?.sha ?? null, message, date,
+      paths: changes.map(c => c[0]), files: new Map(this.files),
+    }
     this.commits.push(commit)
     return commit
   }
@@ -134,15 +140,18 @@ function deleteContents({ repo, path, body }) {
 function getTree({ repo, params: [ref], query }) {
   const head = repo.head
   if (!head) return fail(409, 'Git Repository is empty.')
-  const { dirs, shas } = buildTrees(repo.files)
-  const root = ['HEAD', 'main', head.sha].includes(ref) ? '' : [...shas].find(([, sha]) => sha === ref)?.[0]
+  // A commit (by sha, HEAD or main) means its root tree; anything else, a tree in HEAD.
+  const commit = ['HEAD', 'main'].includes(ref) ? head : repo.commits.find(c => c.sha === ref)
+  const files = commit?.files ?? repo.files
+  const { dirs, shas } = buildTrees(files)
+  const root = commit ? '' : [...shas].find(([, sha]) => sha === ref)?.[0]
   if (root === undefined) return fail(404)
 
   const tree = []
   const strip = p => (root ? p.slice(root.length + 1) : p)
   const walk = dir => {
     for (const e of dirs.get(dir)) {
-      const blob = e.type === 'blob' && repo.files.get(e.path)
+      const blob = e.type === 'blob' && files.get(e.path)
       tree.push(blob
         ? { path: strip(e.path), mode: '100644', type: 'blob', sha: blob.sha, size: blob.bytes.length }
         : { path: strip(e.path), mode: '040000', type: 'tree', sha: shas.get(e.path) })
@@ -167,6 +176,59 @@ function listCommits({ repo, query }) {
   }))
 }
 
+// The sha media type answers the bare sha with ETag "<sha>"; a matching
+// If-None-Match gets a 304 (free on the real API when authenticated).
+function getCommit({ repo, params: [ref], headers }) {
+  if (!repo.head) return fail(409, 'Git Repository is empty.')
+  const c = ['HEAD', 'main'].includes(ref) ? repo.head : repo.commits.find(c => c.sha === ref)
+  if (!c) return fail(422, `No commit found for SHA: ${ref}`)
+  if (headers.accept !== 'application/vnd.github.sha') {
+    const { sha, parents, ...commit } = commitJson(c)
+    return ok({ sha, commit, parents })
+  }
+  const etag = `"${c.sha}"`
+  if (headers['if-none-match'] === etag) return { status: 304, raw: '', headers: { etag } }
+  return { status: 200, raw: c.sha, headers: { etag, 'content-type': 'application/vnd.github.sha; charset=utf-8' } }
+}
+
+function getBlob({ repo, params: [sha], headers }) {
+  const bytes = repo.blobs.get(sha)
+  if (!bytes) return fail(404)
+  if (/^application\/vnd\.github\.raw/.test(headers.accept ?? '')) {
+    return { status: 200, raw: bytes, headers: { 'content-type': 'application/vnd.github.raw; charset=utf-8' } }
+  }
+  return ok({ sha, size: bytes.length, encoding: 'base64', content: wrap64(bytes) })
+}
+
+// GraphQL, just the shape lib/notes/snapshot.ts sends:
+//   repository(owner:$owner,name:$name){b0:object(oid:$o0){...on Blob{text isTruncated}} …}
+// Like GitHub, Blob.text stops at 512,000 bytes (isTruncated) and is null for binary blobs.
+const OBJECT_RE = /(\w+):object\(oid:\$(\w+)\)\{\.\.\.on Blob\{([^}]*)\}\}/g
+
+function blobFields(oid, bytes, fields) {
+  const isBinary = bytes.subarray(0, 8000).includes(0)
+  const all = {
+    oid, byteSize: bytes.length, isBinary, isTruncated: bytes.length > 512_000,
+    text: isBinary ? null : bytes.subarray(0, 512_000).toString('utf8'),
+  }
+  return Object.fromEntries(fields.map(f => [f, all[f] ?? null]))
+}
+
+function graphql({ repo, body, repoName }) {
+  const { query, variables = {} } = body ?? {}
+  if (typeof query !== 'string') return fail(400, 'A query attribute must be specified and must be a string.')
+  const name = `${variables.owner}/${variables.name}`
+  if (name !== repoName) {
+    return ok({ data: { repository: null }, errors: [{ type: 'NOT_FOUND', path: ['repository'], message: `Could not resolve to a Repository with the name '${name}'.` }] })
+  }
+  const repository = {}
+  for (const [, alias, v, fields] of query.matchAll(OBJECT_RE)) {
+    const bytes = repo.blobs.get(variables[v])
+    repository[alias] = bytes ? blobFields(variables[v], bytes, fields.trim().split(/\s+/)) : null
+  }
+  return ok({ data: { repository } })
+}
+
 const REPO = String.raw`^\/repos\/([^/]+)\/([^/]+)`
 const CONTENTS = new RegExp(`${REPO}\\/contents(?:\\/(.*))?$`)
 const routes = [
@@ -175,6 +237,9 @@ const routes = [
   ['DELETE', CONTENTS, 'contents.delete', deleteContents],
   ['GET', new RegExp(`${REPO}\\/git\\/trees\\/([^/]+)$`), 'git.trees.get', getTree],
   ['GET', new RegExp(`${REPO}\\/commits$`), 'commits.list', listCommits],
+  ['GET', new RegExp(`${REPO}\\/commits\\/([^/]+)$`), 'commits.get', getCommit],
+  ['GET', new RegExp(`${REPO}\\/git\\/blobs\\/([^/]+)$`), 'git.blobs.get', getBlob],
+  ['POST', /^\/graphql$/, 'graphql', graphql],
 ]
 
 // ── Server ──────────────────────────────────────────────────
@@ -201,6 +266,7 @@ export class FakeGitHub {
   repo = new Repo()
   requests = []
   faults = []
+  /** @type {string | null} */
   tokenExpiration = '2099-01-01 00:00:00 UTC'
   served = 0 // whole run, unlike `requests` which reset() clears
   pids = new Set()
@@ -243,16 +309,18 @@ export class FakeGitHub {
   async api(req, url, raw) {
     const found = matchRoute(req.method, url.pathname)
     if (!found) return { route: null, path: null, ...fail(404) }
-    const [owner, name, ...params] = found.params
+    const isGraphql = found.name === 'graphql'
+    const [owner, name, ...params] = isGraphql ? [] : found.params
     const contents = found.name.startsWith('contents.')
     const path = contents ? decodePath(params[0] ?? '') : null
     const entry = { route: found.name, path }
 
     // Like GitHub: anonymous requests can't see a private repo (404); a wrong token is a 401.
+    // GraphQL always needs a token (401), and names its repo in the query.
     const auth = req.headers.authorization
-    if (!auth) return { ...entry, ...fail(404) }
+    if (!auth) return { ...entry, ...fail(isGraphql ? 401 : 404) }
     if (auth !== `Bearer ${this.token}` && auth !== `token ${this.token}`) return { ...entry, ...fail(401) }
-    if (`${owner}/${name}` !== this.repoName || (contents && path === null)) return { ...entry, ...fail(404) }
+    if ((!isGraphql && `${owner}/${name}` !== this.repoName) || (contents && path === null)) return { ...entry, ...fail(404) }
 
     let body = null
     if (raw.length) {
@@ -266,7 +334,8 @@ export class FakeGitHub {
     if (fault?.delayMs) await new Promise(r => setTimeout(r, fault.delayMs))
     if (fault && 'write' in fault) this.write({ [fault.path]: fault.write })
     if (fault?.status) return { ...entry, ...fail(fault.status, fault.message) }
-    return { ...entry, ...found.fn({ repo: this.repo, path, params, query: url.searchParams, body }) }
+    const args = { repo: this.repo, repoName: this.repoName, path, params, query: url.searchParams, body, headers: req.headers }
+    return { ...entry, ...found.fn(args) }
   }
 
   async handle(req, res) {
@@ -290,11 +359,18 @@ export class FakeGitHub {
     })
     if (pid) this.pids.add(pid)
     const used = ++this.served
-    send(res, result.status, result.body, {
+    const headers = {
       'x-github-api-version-selected': '2022-11-28',
       'x-ratelimit-limit': '5000', 'x-ratelimit-used': String(used), 'x-ratelimit-remaining': String(Math.max(0, 5000 - used)),
       ...(this.tokenExpiration ? { 'github-authentication-token-expiration': this.tokenExpiration } : {}),
-    })
+      ...result.headers,
+    }
+    if ('raw' in result) {
+      res.writeHead(result.status, headers)
+      res.end(result.raw)
+    } else {
+      send(res, result.status, result.body, headers)
+    }
   }
 
   listen(port = 0) {

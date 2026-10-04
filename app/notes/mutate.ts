@@ -29,13 +29,14 @@ const shaSeq = new Map<string, number>()
 export const seqOf = (sha: string) => shaSeq.get(sha) ?? 0
 
 export function mutate(url: string, body: unknown): Promise<WriteResult> {
+  return post(url, { 'Content-Type': 'application/json' }, JSON.stringify(body))
+}
+
+/** A write with a raw body (an image upload), queued like any other. */
+export function post<T extends object = WriteResult>(url: string, headers: Record<string, string>, body: BodyInit): Promise<T> {
   set({ writes: sync.writes + 1 })
   const run = chain.then(async () => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    const res = await fetch(url, { method: 'POST', headers, body })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status})`)
     if (typeof data.sha === 'string') shaSeq.set(data.sha, (data.seq = ++seq))

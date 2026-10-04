@@ -49,6 +49,7 @@ export default function NotesView({
   // the file (whitespace etc.). Baseline = the editor's own first serialization.
   const [baseline, setBaseline] = useState(content)
   const [pending, setPending] = useState(false)
+  const [uploads, setUploads] = useState(0) // images still uploading: their links aren't in the text yet
   const [error, setError] = useState<string | null>(null)
   const rich = useRef<RichEditorHandle | null>(null)
   const editing = mode !== 'view'
@@ -99,6 +100,7 @@ export default function NotesView({
   }
 
   const save = useCallback(() => {
+    if (uploads) return // ⌘S too: an image still uploading would be left out
     const text = current()
     if (text === baseline) return setMode('view')
     setPending(true)
@@ -111,7 +113,7 @@ export default function NotesView({
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
-  }, [current, baseline, base.sha, file])
+  }, [uploads, current, baseline, base.sha, file])
 
   useEffect(() => {
     if (!editing) return
@@ -148,10 +150,10 @@ export default function NotesView({
             <button onClick={cancel} disabled={pending} className={quiet}>cancel</button>
             <button
               onClick={save}
-              disabled={pending}
+              disabled={pending || uploads > 0}
               className="h-9 px-3 rounded-md bg-stone-900 text-stone-50 text-xs font-medium active:bg-stone-700 disabled:opacity-50"
             >
-              {pending ? 'saving…' : dirty ? 'save' : 'done'}
+              {pending ? 'saving…' : uploads ? 'uploading…' : dirty ? 'save' : 'done'}
             </button>
           </div>
         ) : (
@@ -170,6 +172,7 @@ export default function NotesView({
         <div className="-mx-2 rounded-md border border-stone-200 bg-white">
           <RichEditor
             initial={richSeed}
+            file={file}
             handle={rich}
             autoFocus={focusEditor}
             onReady={md => {
@@ -181,6 +184,11 @@ export default function NotesView({
               }
             }}
             onChange={setDraft}
+            onUpload={(change, failed) => {
+              setUploads(n => n + change)
+              if (change > 0) setError(null)
+              if (failed) setError(`Image not uploaded: ${failed}`)
+            }}
           />
         </div>
       )}

@@ -4,6 +4,8 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import type { Node as ProseNode } from '@milkdown/kit/prose/model'
+import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import { closeWindow, openEditor, roundTrip } from './crepe-harness'
 import { crlf } from './helpers'
 
@@ -52,6 +54,32 @@ test('with ImageBlock on, a block image keeps its alt text instead of a resize r
     'Inline ![icon](attachments/i.png) too\n',
   ]) {
     assert.equal(await roundTrip(md, imageBlock), md)
+  }
+})
+
+test('images show through display(); pasted ones save as plain links to the stored file', async () => {
+  const shown: string[] = []
+  const images = {
+    upload: async (file: File) => {
+      if (file.name === 'bad.png') throw new Error('refused') // the plugin must still settle
+      return `../attachments/2026-10-04-${file.name}`
+    },
+    display: (src: string) => (shown.push(src), `/shown/${src}`),
+  }
+  const editor = await openEditor('Intro\n\n![A wave](../attachments/wave.png)\n', undefined, images)
+  try {
+    assert.deepEqual(shown, ['../attachments/wave.png'], 'display() gets the src as written')
+    const files = ['pasted.png', 'notes.txt', 'bad.png'].map(name => new File(['x'], name, { type: name.endsWith('.txt') ? 'text/plain' : 'image/png' }))
+    const nodes = await editor.crepe.editor.action(ctx => {
+      const { uploader } = ctx.get(uploadConfig.key)
+      return uploader(files as unknown as FileList, editor.view().state.schema, ctx, 0) as Promise<ProseNode[]>
+    })
+    editor.cursorAfter('Intro')
+    const view = editor.view()
+    view.dispatch(view.state.tr.insert(view.state.selection.from, nodes))
+    assert.equal(editor.markdown(), 'Intro![](../attachments/2026-10-04-pasted.png)\n\n![A wave](../attachments/wave.png)\n')
+  } finally {
+    await editor.close()
   }
 })
 

@@ -5,6 +5,7 @@ import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import type { Ctx } from '@milkdown/kit/ctx'
 import { imageBlockSchema } from '@milkdown/kit/component/image-block'
+import { upload, uploadConfig } from '@milkdown/kit/plugin/upload'
 import { codeBlockSchema, imageSchema } from '@milkdown/kit/preset/commonmark'
 import { keepLiteralBrackets, wikiLink } from './wikilink'
 
@@ -15,18 +16,52 @@ const features: Features = {
   // remark-math would parse "$30 … $2,400" in finance notes as an inline formula and
   // rewrite it on save. Off until there's a reason to write maths here.
   [CrepeFeature.Latex]: false,
-  [CrepeFeature.ImageBlock]: false, // no image storage yet
+  [CrepeFeature.ImageBlock]: true,
   [CrepeFeature.AI]: false,
 }
 
+/** How the editor stores and shows images (RichEditor's; tests pass their own). */
+export type ImageHooks = {
+  /** Store an image; resolves to the src the note links it by, or '' if it failed. Never rejects. */
+  upload: (file: File) => Promise<string>
+  /** The URL that shows a src in the editor. */
+  display: (src: string) => string
+}
+
 /** A Crepe editor on `markdown`, ready for `create()`. `overrides` is for tests. */
-export function createEditor(root: Node | null, markdown: string, overrides: Features = {}): Crepe {
+export function createEditor(root: Node | null, markdown: string, overrides: Features = {}, images?: ImageHooks): Crepe {
   const enabled = { ...features, ...overrides }
-  const crepe = new Crepe({ root, defaultValue: markdown, features: enabled })
+  const crepe = new Crepe({
+    root,
+    defaultValue: markdown,
+    features: enabled,
+    featureConfigs: images && { [CrepeFeature.ImageBlock]: { onUpload: images.upload, proxyDomURL: images.display } },
+  })
   crepe.editor.config(matchFileStyle).config(keepImages).config(keepCodeInfo)
   crepe.editor.config(keepLiteralBrackets).use(wikiLink)
   if (enabled[CrepeFeature.ImageBlock]) crepe.editor.config(keepImageBlockAlt)
+  if (images) crepe.editor.config(uploadPastedImages(images.upload)).use(upload)
   return crepe
+}
+
+// Crepe's image block uploads only from its own file picker. Image files
+// pasted or dropped into the text go through the upload plugin and become
+// inline images once stored: plain ![](src) in the file. A paste that carries
+// HTML (a copied web page, or a spreadsheet's cells with a picture of them)
+// stays an ordinary paste.
+function uploadPastedImages(store: ImageHooks['upload']) {
+  return (ctx: Ctx) => {
+    ctx.update(uploadConfig.key, prev => ({
+      ...prev,
+      enableHtmlFileUploader: false,
+      // The plugin shows "Upload in progress…" until this resolves, so it must never reject.
+      uploader: async (files, schema) => {
+        const images = Array.from(files).filter(f => f.type.startsWith('image/'))
+        const srcs = await Promise.all(images.map(f => store(f).catch(() => '')))
+        return srcs.filter(Boolean).map(src => schema.nodes.image.create({ src, alt: '', title: '' }))
+      },
+    }))
+  }
 }
 
 // remark-stringify defaults to "*" bullets and "***" rules, so every save would

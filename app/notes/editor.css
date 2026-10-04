@@ -67,3 +67,22 @@
   content: '↳ ';
   color: #78716c;
 }
+
+/* Images. A resize isn't saved to the file, so there's no handle. Without
+   hover (a phone), the caption button always shows, 44px. */
+.notes-editor .milkdown .milkdown-image-block .image-resize-handle {
+  display: none;
+}
+.notes-editor .milkdown .milkdown-image-inline img {
+  max-width: 100%;
+}
+@media (hover: none) {
+  .notes-editor .milkdown .milkdown-image-block .image-wrapper .operation {
+    opacity: 1;
+  }
+  .notes-editor .milkdown .milkdown-image-block .image-wrapper .operation > .operation-item {
+    width: 44px;
+    height: 44px;
+    padding: 10px;
+  }
+}

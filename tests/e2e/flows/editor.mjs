@@ -223,8 +223,8 @@ Last line.
 
 flow('rich editor keeps images: untitled ones, alt text and titles', {
   seed: { 'Images.md': IMAGES },
-  // The editor shows the images, and the test vault has no image files.
-  allow: ['i', 'untitled', 'diagram'].map(name => [404, `/attachments/${name}.png`]),
+  // The editor asks for each image, and the test vault has no image files.
+  allow: [[404, '/api/notes/asset']],
 }, async page => {
   await editNote(page, 'Images.md')
   await caretAtEnd(page)

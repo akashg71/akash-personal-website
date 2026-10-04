@@ -4,12 +4,12 @@
 import { window } from './dom-env.mjs'
 import { editorViewCtx } from '@milkdown/kit/core'
 import { TextSelection } from '@milkdown/kit/prose/state'
-import { createEditor, type Features } from '../../app/notes/editor/configure'
+import { createEditor, type Features, type ImageHooks } from '../../app/notes/editor/configure'
 
-export async function openEditor(markdown: string, features?: Features) {
+export async function openEditor(markdown: string, features?: Features, images?: ImageHooks) {
   const root = window.document.createElement('div')
   window.document.body.append(root)
-  const crepe = createEditor(root, markdown, features)
+  const crepe = createEditor(root, markdown, features, images)
   await crepe.create()
   const view = () => crepe.editor.action(ctx => ctx.get(editorViewCtx))
   return {

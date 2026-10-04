@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "node tests/e2e/run.mjs"
   },
   "dependencies": {
     "@milkdown/crepe": "^7.22.2",

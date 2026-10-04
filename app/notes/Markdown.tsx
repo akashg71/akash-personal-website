@@ -123,6 +123,8 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
   switch (node.type) {
     case 'root':
       return kids(node)
+    case 'yaml':
+      return null // frontmatter: note metadata, not content
     case 'heading':
       return renderHeading(node, ctx, key)
     case 'paragraph': {

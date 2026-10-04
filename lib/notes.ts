@@ -2,10 +2,8 @@
 // GITHUB_TOKEN / NOTES_PASSWORD have no NEXT_PUBLIC_ prefix so Next won't inline
 // them into a client bundle, but the fetch helpers would still be dead weight there.
 import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfm } from 'micromark-extension-gfm'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
 import type { Heading, ListItem, Nodes } from 'mdast'
+import { splitFrontmatter } from './frontmatter'
 
 export const TODO_FILE = 'todo.md' // the default note; gets the weekly review banner
 export type NotesFile = string
@@ -304,9 +302,8 @@ export async function createNotesFile(file: NotesFile, content: string, extra: o
 
 // ── Markdown structure ──────────────────────────────────────
 
-export function parseMarkdown(content: string) {
-  return fromMarkdown(content, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
-}
+export { parseMarkdown } from './markdown'
+import { parseMarkdown } from './markdown'
 
 export const headingTitle = (line: string) => line.trim().replace(/^#{1,6}[ \t]*/, '').replace(/[ \t]+#+$/, '').trim()
 
@@ -556,12 +553,17 @@ export function addSection(content: string, title: string): string | null {
 // /notes shows it as the banner instead of rendering it inline.
 export const REVIEW_LINE_RE = /^Last reviewed:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/i
 
+// 0-based line of the stamp, -1 if none. A "Last reviewed:" key in the
+// frontmatter is YAML, not the stamp.
+function stampLine(content: string, lines: string[]) {
+  const yaml = splitFrontmatter(content).lines
+  return lines.findIndex((l, i) => i >= yaml && REVIEW_LINE_RE.test(l.trimEnd()))
+}
+
 export function lastReviewed(content: string): string | null {
-  for (const l of content.split('\n')) {
-    const m = l.trimEnd().match(REVIEW_LINE_RE)
-    if (m) return m[1]
-  }
-  return null
+  const lines = content.split('\n')
+  const i = stampLine(content, lines)
+  return i === -1 ? null : lines[i].trimEnd().match(REVIEW_LINE_RE)![1]
 }
 
 /** Set "Last reviewed: <date>", replacing the existing stamp or inserting one under the H1. */
@@ -571,17 +573,22 @@ export function stampReview(content: string, date: string): string | null {
     const stamp = `Last reviewed: ${date}${eol}`
     const lines = c.split('\n')
 
-    const existing = lines.findIndex(l => REVIEW_LINE_RE.test(l.trimEnd()))
+    const existing = stampLine(c, lines)
     if (existing !== -1) {
       if (lines[existing].trimEnd().endsWith(date)) return null // already stamped today
       lines[existing] = stamp
       return lines.join('\n')
     }
 
-    // The H1 comes from the parse tree: a "# comment" in a code block isn't
-    // one, a setext H1 is. Its 1-based end line indexes the line below it.
-    const below = parseMarkdown(c).children.find(n => n.type === 'heading' && n.depth === 1)?.position?.end.line
-    if (below === undefined) return `${stamp}\n${eol}\n${c}`
+    // The H1 comes from the parse tree: a "# comment" in a code block or the
+    // frontmatter isn't one, a setext H1 is. Its 1-based end line indexes the
+    // line below it. With no H1 the stamp goes first, after any frontmatter.
+    const h1 = parseMarkdown(c).children.find(n => n.type === 'heading' && n.depth === 1)
+    const below = h1?.position?.end.line ?? splitFrontmatter(c).lines
+    if (below === 0) {
+      const bom = c.startsWith('\uFEFF') ? '\uFEFF' : '' // a BOM stays the first character
+      return `${bom}${stamp}\n${eol}\n${c.slice(bom.length)}`
+    }
     const after = lines[below]?.trim() === '' ? [eol, stamp] : [eol, stamp, eol]
     lines.splice(below, 0, ...after)
     return lines.join('\n')

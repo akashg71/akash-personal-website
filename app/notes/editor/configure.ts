@@ -6,6 +6,7 @@ import { remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import type { Ctx } from '@milkdown/kit/ctx'
 import { imageBlockSchema } from '@milkdown/kit/component/image-block'
 import { codeBlockSchema, imageSchema } from '@milkdown/kit/preset/commonmark'
+import { keepLiteralBrackets, wikiLink } from './wikilink'
 
 export type Features = Partial<Record<CrepeFeature, boolean>>
 
@@ -23,6 +24,7 @@ export function createEditor(root: Node | null, markdown: string, overrides: Fea
   const enabled = { ...features, ...overrides }
   const crepe = new Crepe({ root, defaultValue: markdown, features: enabled })
   crepe.editor.config(matchFileStyle).config(keepImages).config(keepCodeInfo)
+  crepe.editor.config(keepLiteralBrackets).use(wikiLink)
   if (enabled[CrepeFeature.ImageBlock]) crepe.editor.config(keepImageBlockAlt)
   return crepe
 }

@@ -233,8 +233,30 @@ flow('rich editor keeps images: untitled ones, alt text and titles', {
   assert.equal(await fake.read('Images.md'), IMAGES.replace('Last line.', 'Last line. Saved.'))
 })
 
+const LINKS = `# Links
+
+See [[Physics/Mechanics]], [[Mechanics#Energy|energy]] and [[snake_case_note]].
+
+An embed ![[diagram.png|300]] and \\[\\[not a link]].
+
+Last line.
+`
+
+flow('rich editor keeps [[wiki links]] and ![[embeds]]; typing [[x]] makes a link, but not in code', {
+  seed: { 'Links.md': LINKS },
+}, async page => {
+  await editNote(page, 'Links.md')
+  await waitFor(page, '.wikilink[data-value="Mechanics#Energy|energy"]::-p-text(energy)')
+  await caretAtEnd(page)
+  await typeSlowly(page, ' Next [[Waves]] and `[[code]]`.')
+  await waitFor(page, '.wikilink[data-value="Waves"]')
+  assert.equal((await api(page, 'save', () => click(page, button('save')))).status, 200)
+  assert.equal(await fake.read('Links.md'), LINKS.replace('Last line.', 'Last line. Next [[Waves]] and `[[code]]`.'))
+})
+
 // Rewrites found while building this suite (2026-10-04); not fixed yet. Each
 // becomes a flow above once the editor keeps that construct byte-for-byte.
-test.todo('rich editor keeps [[wiki links]] and [brackets]: today they become \\[\\[…]] (C3.0)')
-test.todo('rich editor keeps bare URLs, "R&D" and "5 * 3": today <url>, R\\&D and 5 \\* 3')
+// The first is the deferred escapes fix (wrap the text handler, RT step 4).
+test.todo('rich editor keeps a_b, "R&D", line-start #tags and [brackets]: today a\\_b, R\\&D, \\#tag and \\[x]')
+test.todo('rich editor keeps bare URLs and "5 * 3": today <url> and 5 \\* 3')
 test.todo('rich editor keeps "* " / "1)" markers, setext headings and two-space line breaks')

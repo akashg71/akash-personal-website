@@ -4,7 +4,7 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { closeWindow, roundTrip } from './crepe-harness'
+import { closeWindow, openEditor, roundTrip } from './crepe-harness'
 import { crlf } from './helpers'
 
 after(closeWindow)
@@ -67,6 +67,39 @@ test('code fences keep their whole info string', async () => {
   }
 })
 
+test('wiki links and embeds save as written, escaped and code ones stay text', async () => {
+  for (const md of [
+    'See [[Note]], [[Physics/Waves|waves]] and [[Mechanics#Energy]].\n',
+    '[[snake_case_note]] and [[#Local heading]]\n',
+    'An embed ![[diagram.png|300]] inline\n',
+    'Not links: \\[\\[escaped]] and `[[in code]]`\n',
+    '\\[\\[x]] `code`\n',
+    '- [ ] Read [[Waves]] 📅 2026-10-10\n',
+    '```\n[[in a fence]]\n```\n',
+    '| Note                | Status |\n| ------------------- | ------ |\n| [[Mechanics\\|mech]] | done   |\n',
+  ]) {
+    assert.equal(await roundTrip(md), md, JSON.stringify(md))
+  }
+})
+
+test('typing [[x]] makes a link, except inside inline code', async () => {
+  const editor = await openEditor('Start here\n\nSome `code` there\n')
+  try {
+    editor.cursorAfter('here')
+    editor.type(' [[Physics/Waves|waves]] and ![[d.png]]')
+    editor.cursorAfter('cod')
+    editor.type(' [[y]]')
+    let links = 0
+    editor.view().state.doc.descendants(node => {
+      if (node.type.name === 'wikiLink') links++
+    })
+    assert.equal(links, 2)
+    assert.equal(editor.markdown(), 'Start here [[Physics/Waves|waves]] and ![[d.png]]\n\nSome `cod [[y]]e` there\n')
+  } finally {
+    await editor.close()
+  }
+})
+
 // Rewrites a save still makes. None changes what the note says; they are
 // listed so a change in Crepe shows up here.
 test('documented rewrites', async () => {
@@ -81,6 +114,7 @@ test('documented rewrites', async () => {
     ['line  \nbreak\n', 'line\\\nbreak\n'], // a two-space hard break becomes "\"
     ['para\n\n    code\n', 'para\n\n```\ncode\n```\n'], // indented code becomes fenced
     ['no final newline', 'no final newline\n'],
+    ['[[]] and [x]\n', '\\[\\[]] and \\[x]\n'], // brackets that are not a link get a backslash
   ]
   for (const [input, saved] of cases) {
     assert.equal(await roundTrip(input), saved, JSON.stringify(input))

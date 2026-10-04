@@ -47,6 +47,12 @@ no language, just text
 | Rent | $2,400 |
 | Food | $300 |
 
+## Links
+
+See [[Physics/Mechanics]], [[Mechanics#Energy|energy]] and [[snake_case_note]].
+
+An embed ![[diagram.png|300]], a literal \[\[not a link]] and `[[in code]]`.
+
 ## Inline
 
 Some *emphasis*, _underscores_, **strong**, ~~struck~~, `code` and a [link](https://example.com "Example").

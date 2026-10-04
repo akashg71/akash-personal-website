@@ -55,3 +55,15 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+
+/* A [[wiki link]] is one uneditable chip showing its label; the title has the
+   raw link. Styled like the view's links; an embed is marked as such. */
+.notes-editor .milkdown .ProseMirror .wikilink {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: #a8a29e;
+}
+.notes-editor .milkdown .ProseMirror .wikilink[data-embed]::before {
+  content: '↳ ';
+  color: #78716c;
+}

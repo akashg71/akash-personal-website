@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "check": "tsc --noEmit && npm run lint && npm test",
-    "test": "node --import ./tests/unit/hooks.mjs --test 'tests/unit/*.test.ts'"
+    "test": "node --import ./tests/unit/hooks.mjs --test 'tests/unit/*.test.ts'",
+    "test:e2e": "node tests/e2e/run.mjs"
   },
   "dependencies": {
     "@milkdown/crepe": "^7.22.2",

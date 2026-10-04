@@ -58,9 +58,13 @@ async function build() {
   }
 }
 
-/** Invariant 5: no secret (or its env var name) in anything served to the browser. */
+/**
+ * Invariant 5: no secret (or its env var name) in anything served to the
+ * browser. Nor the yaml package, which only the server needs: its error class
+ * name is a string literal, so it survives minification.
+ */
 function checkSecrets() {
-  const needles = [FAKE_TOKEN, PASSWORD, 'GITHUB_TOKEN', 'NOTES_PASSWORD', 'NOTES_REPO']
+  const needles = [FAKE_TOKEN, PASSWORD, 'GITHUB_TOKEN', 'NOTES_PASSWORD', 'NOTES_REPO', 'YAMLParseError']
   const files = readdirSync(join(ROOT, '.next/static'), { recursive: true, withFileTypes: true })
     .filter(f => f.isFile())
     .map(f => join(f.parentPath, f.name))
@@ -68,8 +72,8 @@ function checkSecrets() {
     const bytes = readFileSync(file)
     return needles.filter(n => bytes.includes(n)).map(n => `${file.slice(ROOT.length)} contains ${n === PASSWORD ? 'the password' : n}`)
   })
-  if (leaks.length) throw new Error(`secrets in the client bundle:\n  ${leaks.join('\n  ')}`)
-  console.log(`  ${files.length} files in .next/static, none contain the token, password or env var names`)
+  if (leaks.length) throw new Error(`secrets or server-only code in the client bundle:\n  ${leaks.join('\n  ')}`)
+  console.log(`  ${files.length} files in .next/static, none contain the token, password, env var names or the yaml package`)
 }
 
 // localhost, not 127.0.0.1: route handlers see request.url as http://localhost:<port>

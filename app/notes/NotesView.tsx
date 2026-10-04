@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
+import { splitFrontmatter } from '@/lib/frontmatter'
 import { mutate } from './mutate'
 
 const RichEditor = dynamic(() => import('./RichEditor'), {
@@ -39,8 +40,8 @@ export default function NotesView({
   // state rather than by an effect, so there's no flash of the view first.
   const [mode, setMode] = useState<Mode>(startEditing ? 'rich' : 'view')
   const [focusEditor, setFocusEditor] = useState(startEditing)
-  // Nothing but the "# Title" line → show a "Start writing" prompt instead.
-  const empty = content.replace(/^#[^\n]*\n?/, '').trim() === ''
+  // Nothing but the "# Title" line (and any frontmatter) → show a "Start writing" prompt instead.
+  const empty = splitFrontmatter(content).body.trimStart().replace(/^#[^\n]*\n?/, '').trim() === ''
   const [draft, setDraft] = useState(content)
   const [base, setBase] = useState({ content, sha }) // what the editor was opened on
   const [richSeed, setRichSeed] = useState(content) // what the rich editor (re)mounts with

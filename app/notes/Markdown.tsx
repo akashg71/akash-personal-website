@@ -7,6 +7,7 @@ import { headingTitle, parseMarkdown, REVIEW_LINE_RE, taskSource, taskText } fro
 import ActionButton from './ActionButton'
 import EditableText from './EditableText'
 import InlineAdd from './InlineAdd'
+import Properties from './Properties'
 import TaskItem from './TaskItem'
 
 type Ctx = { lines: string[]; file: string }
@@ -124,7 +125,7 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
     case 'root':
       return kids(node)
     case 'yaml':
-      return null // frontmatter: note metadata, not content
+      return <Properties key={key} yaml={node.value} /> // frontmatter: only ever the first node
     case 'heading':
       return renderHeading(node, ctx, key)
     case 'paragraph': {

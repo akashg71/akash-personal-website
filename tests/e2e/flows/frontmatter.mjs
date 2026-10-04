@@ -1,5 +1,5 @@
-// YAML frontmatter: never rendered as a rule and headings, and never touched
-// by the line edits below it.
+// YAML frontmatter: a properties block above the note, never a rule and
+// headings, and never touched by the line edits below it.
 import assert from 'node:assert/strict'
 import { api, click, fake, flow, open, waitFor } from '../harness.mjs'
 
@@ -27,6 +27,7 @@ template: |
 `
 const seed = { 'todo.md': '# Todo\n', 'Projects/Atlas.md': NOTE }
 const box = title => `input[type=checkbox][aria-label="${title}"]`
+const props = 'main section > div > details' // not the file tree's folders or drawer
 
 flow('frontmatter never renders as a rule and headings', { seed }, async page => {
   await open(page, 'Projects/Atlas.md')
@@ -53,4 +54,50 @@ flow('the weekly review stamp goes under the H1, never into the YAML', {
     await fake.read('todo.md'),
     `---\ncssclasses: [wide]\nLast reviewed: 2026-01-01\n---\n# Todo\n\nLast reviewed: ${today}\n\n## Inbox\n`,
   )
+})
+
+flow('the properties block shows each value, folded until tapped', { seed }, async page => {
+  await open(page, 'Projects/Atlas.md')
+  await waitFor(page, `${props} summary::-p-text(Properties)`)
+  const summary = await page.$(`${props} summary`)
+  // Folded: the count and the first three tags.
+  assert.equal(await summary.evaluate(el => el.innerText.replace(/\s+/g, ' ').trim()), '▶ Properties 9 #work #planning #q4 +1')
+  await summary.click()
+  await waitFor(page, `${props}[open] dl`)
+  const rows = await page.$$eval(`${props} dt`, dts => dts.map(dt => {
+    const dd = dt.nextElementSibling
+    const chips = [...dd.querySelectorAll('li')].map(li => li.textContent)
+    return [dt.textContent, chips.length ? chips : dd.textContent]
+  }))
+  assert.deepEqual(rows, [
+    ['title', 'Project Atlas'],
+    ['tags', ['#work', '#planning', '#q4', '#travel']],
+    ['status', 'active'],
+    ['due', '10 Oct 2026'],
+    ['budget', '2400'],
+    ['public', '✗false'], // the mark, then its screen-reader text
+    ['link', 'https://example.com/atlas'],
+    ['aliases', ['Atlas']],
+    ['template', '- [ ] Call the bank\n# not a heading'],
+  ])
+  assert.deepEqual(await page.$eval(`${props} dd a`, a => [a.href, a.rel]), ['https://example.com/atlas', 'noreferrer'])
+})
+
+flow('frontmatter that is not valid YAML shows as written, with a warning', {
+  seed: { 'todo.md': '# Todo\n', 'Plan.md': '---\ntitle: Re: the plan\n---\n# Plan\n\n- [ ] Still tickable\n' },
+}, async page => {
+  await open(page, 'Plan.md')
+  await waitFor(page, '::-p-text(can’t read the YAML)')
+  assert.equal(await page.$eval(`${props} pre`, el => el.textContent), '---\ntitle: Re: the plan\n---')
+  assert.match(await page.$eval(`${props} p`, el => el.textContent), /\(line 2\)/)
+  assert.equal((await api(page, 'toggle', () => click(page, box('Still tickable')))).status, 200)
+  assert.equal(await fake.read('Plan.md'), '---\ntitle: Re: the plan\n---\n# Plan\n\n- [x] Still tickable\n')
+})
+
+flow('a note with only frontmatter and a title counts as empty', {
+  seed: { 'todo.md': '# Todo\n', 'Fresh.md': '---\ntags: [new]\n---\n\n# Fresh\n' },
+}, async page => {
+  await open(page, 'Fresh.md')
+  await waitFor(page, '::-p-text(start writing)')
+  await waitFor(page, `${props} summary::-p-text(Properties)`)
 })

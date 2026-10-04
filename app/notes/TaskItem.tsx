@@ -1,18 +1,17 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-
-// One write at a time across all checkboxes on the page. Parallel PUTs would all
-// read the same sha and all but one would 409 — serializing avoids self-conflicts.
-let queue: Promise<unknown> = Promise.resolve()
+import { mutate } from './mutate'
 
 export default function TaskItem({
+  file,
   line,
   raw,
   initialChecked,
   label,
   children,
 }: {
+  file: string
   line: number
   raw: string
   initialChecked: boolean
@@ -28,25 +27,12 @@ export default function TaskItem({
     setChecked(next) // optimistic
     setError(null)
     setPending(true)
-
-    queue = queue.then(async () => {
-      try {
-        const res = await fetch('/api/notes/toggle', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ line, raw, checked: next }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          throw new Error(data.error ?? `Save failed (${res.status})`)
-        }
-      } catch (err) {
+    mutate('/api/notes/toggle', { file, line, raw, checked: next })
+      .catch(err => {
         setChecked(!next) // revert
         setError(err instanceof Error ? err.message : 'Save failed')
-      } finally {
-        setPending(false)
-      }
-    })
+      })
+      .finally(() => setPending(false))
   }
 
   return (

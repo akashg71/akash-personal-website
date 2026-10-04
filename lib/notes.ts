@@ -3,9 +3,14 @@
 // them into a client bundle, but the fetch helpers would still be dead weight there.
 import { createHmac, createHash, timingSafeEqual } from 'node:crypto'
 
-export const NOTES_FILE = 'todo.md'
+export const NOTES_FILES = { todo: 'todo.md', progress: 'progress.md' } as const
+export type NotesFile = (typeof NOTES_FILES)[keyof typeof NOTES_FILES]
 export const SESSION_COOKIE = 'notes_session'
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
+
+export function isNotesFile(f: unknown): f is NotesFile {
+  return Object.values(NOTES_FILES).includes(f as NotesFile)
+}
 
 // ── Config ──────────────────────────────────────────────────
 
@@ -97,30 +102,30 @@ async function gh(path: string, init: RequestInit = {}) {
   return res.json()
 }
 
-export async function getNotesFile() {
+export async function getNotesFile(file: NotesFile) {
   // Default JSON media type returns base64 content *and* the blob sha we need for
   // the PUT. (The raw media type would skip the base64 but drops the sha.)
-  const data = await gh(`/contents/${NOTES_FILE}`)
+  const data = await gh(`/contents/${file}`)
   return {
     content: Buffer.from(data.content, 'base64').toString('utf8'),
     sha: data.sha as string,
   }
 }
 
-export async function getLastUpdated(): Promise<string | null> {
+export async function getLastUpdated(file: NotesFile): Promise<string | null> {
   // The Contents API has no timestamp — ask the commits endpoint for the latest
   // commit touching this path. Non-fatal: the page renders without it.
   try {
-    const commits = await gh(`/commits?path=${NOTES_FILE}&per_page=1`)
+    const commits = await gh(`/commits?path=${file}&per_page=1`)
     return commits[0]?.commit?.committer?.date ?? null
   } catch {
     return null
   }
 }
 
-export async function putNotesFile(content: string, sha: string, message: string) {
+async function putNotesFile(file: NotesFile, content: string, sha: string, message: string) {
   // PUT with a stale sha → 409. That's our optimistic-concurrency check.
-  return gh(`/contents/${NOTES_FILE}`, {
+  return gh(`/contents/${file}`, {
     method: 'PUT',
     body: JSON.stringify({
       message,
@@ -130,7 +135,49 @@ export async function putNotesFile(content: string, sha: string, message: string
   })
 }
 
-// ── Line patching ───────────────────────────────────────────
+// ── Read-modify-write ───────────────────────────────────────
+
+export type Edit =
+  | { content: string; message: string }
+  | { noop: true }              // already in the desired state
+  | { conflict: string }        // can't apply against the current file
+
+/**
+ * Every write goes through here. The client never sends file content: each
+ * attempt re-reads the file, applies `edit` to that fresh copy, and PUTs with
+ * the sha it just read. A 409 means someone committed between our GET and PUT
+ * (another device, or an edit on GitHub) — re-read and try once more; if it
+ * conflicts again, report it rather than overwrite.
+ */
+export async function editNotesFile(file: NotesFile, edit: (content: string) => Edit): Promise<Response> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { content, sha } = await getNotesFile(file)
+      const result = edit(content)
+      if ('noop' in result) return Response.json({ ok: true })
+      if ('conflict' in result) return Response.json({ error: result.conflict }, { status: 409 })
+      await putNotesFile(file, result.content, sha, result.message)
+      return Response.json({ ok: true })
+    } catch (err) {
+      if (err instanceof GitHubError && err.status === 409 && attempt === 0) continue
+      if (err instanceof GitHubError && err.status === 409) {
+        return Response.json({ error: 'File kept changing while saving — reload and try again.' }, { status: 409 })
+      }
+      return Response.json(
+        { error: `Save failed: ${err instanceof Error ? err.message : 'unknown error'}` },
+        { status: 502 },
+      )
+    }
+  }
+  throw new Error('unreachable')
+}
+
+// ── Line-level edits (pure; unit-tested) ────────────────────
+// All edits split on \n only: CRLF files keep their \r on each line, and inserted
+// lines copy the file's line ending so the file never ends up mixed.
+
+const eolOf = (content: string) => (content.includes('\r\n') ? '\r' : '')
+
 // Matches the task marker on a list-item line, including inside blockquotes:
 // "  - [ ] foo", "> * [x] bar", "3. [ ] baz". Group 1 = prefix, group 2 = state.
 const TASK_RE = /^((?:[ \t]*>)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\]/
@@ -161,7 +208,6 @@ export type PatchResult =
  * fall back to a unique match on the normalized text anywhere in the file.
  */
 export function patchTask(content: string, line: number, raw: string, checked: boolean): PatchResult {
-  // Split on \n only: CRLF files keep their \r on each line and round-trip intact.
   const lines = content.split('\n')
   const want = normalize(raw)
 
@@ -177,4 +223,69 @@ export function patchTask(content: string, line: number, raw: string, checked: b
 
   lines[idx] = lines[idx].replace(TASK_RE, `$1[${checked ? 'x' : ' '}]`)
   return { kind: 'patched', content: lines.join('\n'), text: taskText(lines[idx]) }
+}
+
+/**
+ * Append "- [ ] text" as the last line of the "## Inbox" section (any heading
+ * level; the section ends at the next heading of the same or higher level).
+ * Creates the section at the end of the file if it doesn't exist.
+ */
+export function addToInbox(content: string, text: string): string {
+  const eol = eolOf(content)
+  const item = `- [ ] ${text}${eol}`
+  const lines = content.split('\n')
+  const h = lines.findIndex(l => /^#{1,6}[ \t]+inbox[ \t]*#*$/i.test(l.trimEnd()))
+
+  if (h === -1) {
+    return `${content.trimEnd()}${eol}\n${eol}\n## Inbox${eol}\n${eol}\n${item}\n`
+  }
+
+  const level = lines[h].match(/^#+/)![0].length
+  let end = lines.length
+  for (let i = h + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,6})[ \t]/)
+    if (m && m[1].length <= level) { end = i; break }
+  }
+  let last = h
+  for (let i = h + 1; i < end; i++) if (lines[i].trim() !== '') last = i
+
+  if (last === h) {
+    // Empty section: normalise its body to blank / item / blank.
+    lines.splice(h + 1, end - h - 1, eol, item, eol)
+  } else {
+    lines.splice(last + 1, 0, item)
+  }
+  return lines.join('\n')
+}
+
+// The review stamp is a plain, visible line so it stays editable on GitHub.
+// /notes shows it as the banner instead of rendering it inline.
+export const REVIEW_LINE_RE = /^Last reviewed:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/i
+
+export function lastReviewed(content: string): string | null {
+  for (const l of content.split('\n')) {
+    const m = l.trimEnd().match(REVIEW_LINE_RE)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/** Set "Last reviewed: <date>", replacing the existing stamp or inserting one under the H1. */
+export function stampReview(content: string, date: string): string | null {
+  const eol = eolOf(content)
+  const stamp = `Last reviewed: ${date}${eol}`
+  const lines = content.split('\n')
+
+  const existing = lines.findIndex(l => REVIEW_LINE_RE.test(l.trimEnd()))
+  if (existing !== -1) {
+    if (lines[existing].trimEnd().endsWith(date)) return null // already stamped today
+    lines[existing] = stamp
+    return lines.join('\n')
+  }
+
+  const h1 = lines.findIndex(l => /^#[ \t]/.test(l))
+  if (h1 === -1) return `${stamp}\n${eol}\n${content}`
+  const after = lines[h1 + 1]?.trim() === '' ? [eol, stamp] : [eol, stamp, eol]
+  lines.splice(h1 + 1, 0, ...after)
+  return lines.join('\n')
 }

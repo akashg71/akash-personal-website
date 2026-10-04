@@ -1,19 +1,26 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { cookies } from 'next/headers'
 import type { Nodes, List, ListItem } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import {
+  GitHubError,
   getLastUpdated,
   getNotesFile,
   isValidSession,
+  lastReviewed,
   notesConfig,
-  NOTES_FILE,
+  NOTES_FILES,
+  REVIEW_LINE_RE,
   SESSION_COOKIE,
+  type NotesFile,
 } from '@/lib/notes'
 import TaskItem from './TaskItem'
+import ReviewBanner from './ReviewBanner'
+import QuickAdd from './QuickAdd'
 
 export const metadata: Metadata = {
   title: 'notes',
@@ -27,33 +34,51 @@ export const dynamic = 'force-dynamic'
 export default async function NotesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; f?: string }>
 }) {
   const { missing, repo } = notesConfig()
   if (missing.length) {
     return <Shell><Notice>Not configured. Missing env: {missing.join(', ')}</Notice></Shell>
   }
 
+  const { error, f } = await searchParams
   const session = (await cookies()).get(SESSION_COOKIE)?.value
   if (!isValidSession(session)) {
-    const { error } = await searchParams
     return <Shell><Login error={Boolean(error)} /></Shell>
   }
+
+  const file: NotesFile = f === 'progress' ? NOTES_FILES.progress : NOTES_FILES.todo
+  const tabs = <Tabs active={file} />
 
   let content: string
   let updated: string | null
   try {
-    const [file, date] = await Promise.all([getNotesFile(), getLastUpdated()])
-    content = file.content
+    const [res, date] = await Promise.all([getNotesFile(file), getLastUpdated(file)])
+    content = res.content
     updated = date
   } catch (err) {
+    const missingFile = err instanceof GitHubError && err.status === 404 && file !== NOTES_FILES.todo
     return (
       <Shell authed>
-        <Notice>
-          Couldn&apos;t load {NOTES_FILE} from GitHub.
-          <br />
-          <span className="text-stone-500">{err instanceof Error ? err.message : 'Unknown error'}</span>
-        </Notice>
+        {tabs}
+        {missingFile ? (
+          <Notice>
+            {file} doesn&apos;t exist yet.{' '}
+            <a
+              href={`https://github.com/${repo}/new/main?filename=${file}`}
+              className="underline underline-offset-2"
+            >
+              Create it on GitHub
+            </a>
+            .
+          </Notice>
+        ) : (
+          <Notice>
+            Couldn&apos;t load {file} from GitHub.
+            <br />
+            <span className="text-stone-500">{err instanceof Error ? err.message : 'Unknown error'}</span>
+          </Notice>
+        )}
       </Shell>
     )
   }
@@ -62,11 +87,12 @@ export default async function NotesPage({
     extensions: [gfm()],
     mdastExtensions: [gfmFromMarkdown()],
   })
-  const lines = content.split('\n')
+  const ctx: Ctx = { lines: content.split('\n'), file }
 
   return (
     <Shell authed>
-      <p className="text-xs text-stone-400 mb-8">
+      {tabs}
+      <p className="text-xs text-stone-400 mb-6">
         {updated ? (
           <time dateTime={updated} title={new Date(updated).toUTCString()}>
             updated {relativeTime(updated)}
@@ -76,13 +102,19 @@ export default async function NotesPage({
         )}
         {' · '}
         <a
-          href={`https://github.com/${repo}/blob/HEAD/${NOTES_FILE}`}
+          href={`https://github.com/${repo}/blob/HEAD/${file}`}
           className="underline underline-offset-2 hover:text-stone-700"
         >
           open on GitHub
         </a>
       </p>
-      <div className="text-[16px] leading-relaxed text-stone-800">{render(tree, lines)}</div>
+      {file === NOTES_FILES.todo && (
+        <>
+          <ReviewBanner {...reviewStatus(content)} />
+          <QuickAdd />
+        </>
+      )}
+      <div className="text-[16px] leading-relaxed text-stone-800">{render(tree, ctx)}</div>
     </Shell>
   )
 }
@@ -102,6 +134,25 @@ function Shell({ children, authed = false }: { children: ReactNode; authed?: boo
       </header>
       {children}
     </main>
+  )
+}
+
+function Tabs({ active }: { active: NotesFile }) {
+  const tab = (href: string, file: NotesFile, label: string) => (
+    <Link
+      href={href}
+      className={`inline-flex items-center h-11 px-1 border-b-2 ${
+        active === file ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-400 hover:text-stone-700'
+      }`}
+    >
+      {label}
+    </Link>
+  )
+  return (
+    <nav className="flex gap-6 mb-4 text-sm border-b border-stone-200">
+      {tab('/notes', NOTES_FILES.todo, 'todo')}
+      {tab('/notes?f=progress', NOTES_FILES.progress, 'progress')}
+    </nav>
   )
 }
 
@@ -139,17 +190,28 @@ function relativeTime(iso: string) {
   return `${Math.round(hours / 24)}d ago`
 }
 
+function reviewStatus(content: string) {
+  const last = lastReviewed(content)
+  if (!last) return { last: null, days: null }
+  // Server clock is UTC and the stamp is the client's local date, so this can be
+  // a day off around midnight — clamp so it never shows "-1 days ago".
+  const today = Date.parse(new Date().toISOString().slice(0, 10))
+  return { last, days: Math.max(0, Math.round((today - Date.parse(last)) / 86_400_000)) }
+}
+
 // ── mdast → React ───────────────────────────────────────────
-// Deliberately not MDX: todo.md is data, not code. A stray `{` or `<` must not
-// break rendering, and raw HTML nodes are shown as text, never injected.
+// Deliberately not MDX: these files are data, not code. A stray `{` or `<` must
+// not break rendering, and raw HTML nodes are shown as text, never injected.
+
+type Ctx = { lines: string[]; file: NotesFile }
 
 function safeHref(url: string) {
   return /^(https?:|mailto:|\/|#)/i.test(url) ? url : undefined
 }
 
-function render(node: Nodes, lines: string[], tight = false, key?: number): ReactNode {
+function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
   const kids = (n: { children: Nodes[] }, childTight = tight) =>
-    n.children.map((c, i) => render(c, lines, childTight, i))
+    n.children.map((c, i) => render(c, ctx, childTight, i))
 
   switch (node.type) {
     case 'root':
@@ -164,8 +226,14 @@ function render(node: Nodes, lines: string[], tight = false, key?: number): Reac
       const Tag = `h${Math.min(node.depth + 1, 6)}` as 'h2' // page owns the single h1
       return <Tag key={key} className={`${cls} first:mt-0`}>{kids(node)}</Tag>
     }
-    case 'paragraph':
+    case 'paragraph': {
+      // The "Last reviewed: …" stamp is shown by ReviewBanner, not inline.
+      const pos = node.position
+      if (pos && pos.start.line === pos.end.line && REVIEW_LINE_RE.test(ctx.lines[pos.start.line - 1]?.trimEnd() ?? '')) {
+        return null
+      }
       return tight ? <span key={key}>{kids(node)}</span> : <p key={key} className="my-3">{kids(node)}</p>
+    }
     case 'text':
       return node.value
     case 'strong':
@@ -197,7 +265,7 @@ function render(node: Nodes, lines: string[], tight = false, key?: number): Reac
       )
     }
     case 'list':
-      return renderList(node, lines, key)
+      return renderList(node, ctx, key)
     case 'blockquote':
       return (
         <blockquote key={key} className="my-4 pl-4 border-l-2 border-stone-300 text-stone-600">
@@ -229,10 +297,10 @@ function render(node: Nodes, lines: string[], tight = false, key?: number): Reac
   }
 }
 
-function renderList(list: List, lines: string[], key?: number) {
+function renderList(list: List, ctx: Ctx, key?: number) {
   const tight = !list.spread
   const allTasks = list.children.every(li => typeof li.checked === 'boolean')
-  const items = list.children.map((li, i) => renderItem(li, lines, tight, i))
+  const items = list.children.map((li, i) => renderItem(li, ctx, tight, i))
 
   if (allTasks) return <ul key={key} className="my-2">{items}</ul>
   return list.ordered ? (
@@ -242,20 +310,24 @@ function renderList(list: List, lines: string[], key?: number) {
   )
 }
 
-function renderItem(li: ListItem, lines: string[], tight: boolean, key: number) {
+function renderItem(li: ListItem, ctx: Ctx, tight: boolean, key: number) {
   if (typeof li.checked !== 'boolean' || !li.position) {
-    return <li key={key}>{li.children.map((c, i) => render(c, lines, tight, i))}</li>
+    return <li key={key}>{li.children.map((c, i) => render(c, ctx, tight, i))}</li>
   }
 
   // The task marker sits on the item's first source line — that line number is
   // the write-back address. `raw` lets the server verify it before patching.
   const line = li.position.start.line
+  const raw = ctx.lines[line - 1] ?? ''
   const [first, ...rest] = li.children
-  const label = first?.type === 'paragraph' ? render(first, lines, true) : null
-  const body = (first?.type === 'paragraph' ? rest : li.children).map((c, i) => render(c, lines, tight, i))
+  const label = first?.type === 'paragraph' ? render(first, ctx, true) : null
+  const body = (first?.type === 'paragraph' ? rest : li.children).map((c, i) => render(c, ctx, tight, i))
 
+  // Keyed by line + raw (not index): after router.refresh() an item whose line
+  // or state changed upstream remounts and picks up the server's checked state,
+  // instead of a stale useState surviving on a different item.
   return (
-    <TaskItem key={key} line={line} raw={lines[line - 1] ?? ''} initialChecked={li.checked} label={label}>
+    <TaskItem key={`${line}:${raw}`} file={ctx.file} line={line} raw={raw} initialChecked={li.checked} label={label}>
       {body.length ? body : undefined}
     </TaskItem>
   )

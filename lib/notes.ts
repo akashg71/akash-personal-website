@@ -314,6 +314,16 @@ export const headingTitle = (line: string) => line.trim().replace(/^#{1,6}[ \t]*
 
 const eolOf = (content: string) => (content.includes('\r\n') ? '\r' : '')
 
+// Edits that add or remove lines assume every line ends in a newline. A file
+// without a final one gets it for the edit and loses it again afterwards, so
+// a CRLF file's new last line never keeps a lone \r or loses its \r\n.
+function withFinalNewline(content: string, edit: (content: string) => string | null) {
+  if (content === '' || content.endsWith('\n')) return edit(content)
+  const end = `${eolOf(content)}\n`
+  const out = edit(content + end)
+  return out?.endsWith(end) ? out.slice(0, -end.length) : out
+}
+
 // Matches the task marker on a list-item line, including inside blockquotes:
 // "  - [ ] foo", "> * [x] bar", "3. [ ] baz". Group 1 = prefix, group 2 = state.
 const TASK_RE = /^((?:[ \t]*>)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\]/
@@ -474,7 +484,8 @@ export function addToSection(content: string, heading: HeadingRef, text: string)
 function removeLines(lines: string[], start: number, end: number) {
   lines.splice(start, end - start)
   if (start > 0 && start < lines.length && lines[start - 1].trim() === '' && lines[start].trim() === '') {
-    lines.splice(start, 1)
+    // Drop the upper blank: the lower one may be the final '' that ends a CRLF file with \r\n.
+    lines.splice(start - 1, 1)
   }
   while (lines.length > 1 && lines[lines.length - 1] === '' && lines[lines.length - 2].trim() === '') {
     lines.splice(lines.length - 2, 1) // at most one trailing newline
@@ -503,9 +514,11 @@ function walk(node: Nodes, visit: (n: Nodes) => void) {
 
 /** Delete one task item, including anything nested under it. null if gone/ambiguous. */
 export function deleteTask(content: string, line: number, raw: string): string | null {
-  const lines = content.split('\n')
-  const item = locateTask(content, lines, line, raw)
-  return item ? removeLines(lines, item.position!.start.line - 1, item.position!.end.line) : null
+  return withFinalNewline(content, c => {
+    const lines = c.split('\n')
+    const item = locateTask(c, lines, line, raw)
+    return item ? removeLines(lines, item.position!.start.line - 1, item.position!.end.line) : null
+  })
 }
 
 /** Add "## title" before the Inbox section (Inbox stays last), else at the end. null if it exists. */

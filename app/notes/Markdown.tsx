@@ -3,7 +3,7 @@
 // break rendering, and raw HTML nodes are shown as text, never injected.
 import type { ReactNode } from 'react'
 import type { Heading, Image, Nodes, List, ListItem, Root, WikiLink } from 'mdast'
-import { type AssetIndex, imageType, imageUrl, imageWidth, resolveEmbed, resolveImage, splitAlt } from '@/lib/assets'
+import { type AssetIndex, imageSrc, imageType, imageUrl, imageWidth, resolveEmbed, splitAlt } from '@/lib/assets'
 import { headingTitle, parseMarkdown, REVIEW_LINE_RE, taskSource, taskText } from '@/lib/notes'
 import { addKey, sectionsKey } from '@/lib/optimistic'
 import ActionButton from './ActionButton'
@@ -232,11 +232,9 @@ function render(node: Nodes, ctx: Ctx, tight = false, key?: number): ReactNode {
 /** ![alt](src): an http(s) URL as is, a file in the vault through the image route. */
 function renderImage(node: Image, ctx: Ctx, key?: number) {
   const { alt, width } = splitAlt(node.alt ?? '')
-  if (/^https?:\/\//i.test(node.url)) return <NoteImage key={key} url={node.url} alt={alt} width={width} inLink={ctx.inLink} />
-  if (/^[a-z][a-z\d+.-]*:/i.test(node.url)) return alt // data:, javascript: and the like stay text
-  const path = resolveImage(ctx.file, node.url, ctx.assets)
-  const url = path && imageUrl(path, ctx.assets.get(path)!)
-  return <NoteImage key={key} url={url} alt={alt} width={width} missing={node.url} inLink={ctx.inLink} />
+  const url = imageSrc(ctx.file, node.url, ctx.assets)
+  if (url === null) return alt // data:, javascript: and the like stay text
+  return <NoteImage key={key} url={url || null} alt={alt} width={width} missing={node.url} inLink={ctx.inLink} />
 }
 
 /** An Obsidian ![[image.png|300]] embed shows the image; other [[links]] stay as written for now. */

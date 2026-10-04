@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   attachmentPath,
   checkUpload,
+  imageSrc,
   imageType,
   imageUrl,
   imageWidth,
@@ -76,6 +77,17 @@ describe('vault images', () => {
     assert.equal(imageType('x.svg'), 'image/svg+xml')
     for (const name of ['x.md', 'x.html', 'x.pdf', 'png', '.png', 'dir.png/x', 'x.constructor', 'x.']) {
       assert.equal(imageType(name), null, name)
+    }
+  })
+
+  test('imageSrc: what view mode loads for each kind of src', () => {
+    assert.equal(imageSrc('todo.md', 'https://example.com/a.png', assets), 'https://example.com/a.png')
+    assert.equal(imageSrc('todo.md', 'HTTP://example.com/a.png', assets), 'HTTP://example.com/a.png')
+    assert.equal(imageSrc('todo.md', '//cdn.example.com/a.png', assets), '//cdn.example.com/a.png')
+    assert.equal(imageSrc('Physics/M.md', '../attachments/diagram.png', assets), '/api/notes/blob/d1/diagram.png')
+    assert.equal(imageSrc('todo.md', 'attachments/none.png', assets), '', 'missing')
+    for (const src of ['data:image/png;base64,AAAA', 'javascript:alert(1)', 'file:///etc/passwd', 'ftp://x/a.png']) {
+      assert.equal(imageSrc('todo.md', src, assets), null, src)
     }
   })
 

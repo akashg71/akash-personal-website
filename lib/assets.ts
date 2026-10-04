@@ -91,6 +91,19 @@ export function resolveEmbed(note: string, target: string, assets: AssetIndex): 
 export const imageUrl = (path: string, sha: string) => `/api/notes/blob/${sha}/${encodeURIComponent(baseOf(path))}`
 
 /**
+ * What view mode loads for a markdown image: an http(s) or protocol-relative
+ * URL as written, a vault file through the image route, '' for a vault path
+ * with no file, and null for any other scheme (data:, javascript:), which
+ * shows as its alt text.
+ */
+export function imageSrc(note: string, src: string, assets: AssetIndex): string | null {
+  if (/^(https?:)?\/\//i.test(src)) return src
+  if (isUrl(src)) return null
+  const path = resolveImage(note, src, assets)
+  return path ? imageUrl(path, assets.get(path)!) : ''
+}
+
+/**
  * The width in Obsidian's size suffix, "300" or "300x200" (an embed's alias,
  * or after "|" in an image's alt). The height is left to the aspect ratio.
  */

@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { isNotesFile, isValidSession, saveNotesFile, SESSION_COOKIE } from '@/lib/notes'
+import { isNotePath, isValidSession, saveNotesFile, SESSION_COOKIE } from '@/lib/notes'
 
 // GitHub's Contents API caps files at 1 MB; a todo list anywhere near this is a bug.
 const MAX_BYTES = 200_000
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null)
-  if (!isNotesFile(body?.file) || typeof body.content !== 'string' || typeof body.sha !== 'string' || !body.sha) {
+  if (!isNotePath(body?.file) || typeof body.content !== 'string' || typeof body.sha !== 'string' || !body.sha) {
     return Response.json({ error: 'Bad request' }, { status: 400 })
   }
   if (Buffer.byteLength(body.content) > MAX_BYTES) {

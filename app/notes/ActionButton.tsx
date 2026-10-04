@@ -11,6 +11,7 @@ export default function ActionButton({
   confirmText,
   ariaLabel,
   className,
+  redirect,
   children,
 }: {
   url: string
@@ -18,6 +19,7 @@ export default function ActionButton({
   confirmText?: string
   ariaLabel?: string
   className: string
+  redirect?: string // navigate here on success instead of refreshing (e.g. after deleting the open note)
   children: ReactNode
 }) {
   const router = useRouter()
@@ -29,7 +31,11 @@ export default function ActionButton({
     setPending(true)
     setError(null)
     mutate(url, body)
-      .then(() => router.refresh())
+      .then(data => {
+        const to = redirect ?? data.href
+        if (to) router.push(to)
+        else router.refresh()
+      })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
   }

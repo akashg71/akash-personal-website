@@ -7,14 +7,45 @@ import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import type { Heading, ListItem, Nodes } from 'mdast'
 
-export const NOTES_FILES = { todo: 'todo.md', progress: 'progress.md' } as const
-export type NotesFile = (typeof NOTES_FILES)[keyof typeof NOTES_FILES]
+export const TODO_FILE = 'todo.md' // gets the review banner + inbox quick-add
+export type NotesFile = string
 export const SESSION_COOKIE = 'notes_session'
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
 
-export function isNotesFile(f: unknown): f is NotesFile {
-  return Object.values(NOTES_FILES).includes(f as NotesFile)
+// ── Vault paths ─────────────────────────────────────────────
+// Any .md file in NOTES_REPO is a note; folders are directories. Paths are
+// repo-relative ("Physics/Mechanics.md"). Validated on every request: the token
+// is scoped to the repo, but a path is still never trusted.
+
+const SEGMENT_RE = /^[\p{L}\p{N} _\-.,()'&+!]+$/u
+
+function validSegments(path: string) {
+  const segs = path.split('/')
+  return (
+    path.length <= 200 &&
+    segs.every(s => SEGMENT_RE.test(s) && !s.startsWith('.') && s === s.trim())
+  )
 }
+
+export function isNotePath(p: unknown): p is string {
+  // Case-insensitive, matching listVault: a "Notes.MD" in the tree must also open.
+  return typeof p === 'string' && /\.md$/i.test(p) && p.length > 3 && validSegments(p)
+}
+
+export function isFolderPath(p: unknown): p is string {
+  return typeof p === 'string' && p.length > 0 && validSegments(p)
+}
+
+/** "Physics/ Mechanics " → "Physics/Mechanics.md"; null if not a valid name. */
+export function toNotePath(input: string): string | null {
+  const p = input.split('/').map(s => s.trim()).filter(Boolean).join('/')
+  const withExt = p.toLowerCase().endsWith('.md') ? p : `${p}.md`
+  return isNotePath(withExt) ? withExt : null
+}
+
+export const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/')
+export const noteHref = (p: string) => `/notes/${encodePath(p)}`
+export const noteName = (p: string) => p.split('/').pop()!.replace(/\.md$/i, '')
 
 // ── Config ──────────────────────────────────────────────────
 
@@ -109,7 +140,8 @@ async function gh(path: string, init: RequestInit = {}) {
 export async function getNotesFile(file: NotesFile) {
   // Default JSON media type returns base64 content *and* the blob sha we need for
   // the PUT. (The raw media type would skip the base64 but drops the sha.)
-  const data = await gh(`/contents/${file}`)
+  const data = await gh(`/contents/${encodePath(file)}`)
+  if (typeof data.content !== 'string') throw new GitHubError(404, `${file} is not a file`)
   return {
     content: Buffer.from(data.content, 'base64').toString('utf8'),
     sha: data.sha as string,
@@ -120,16 +152,54 @@ export async function getLastUpdated(file: NotesFile): Promise<string | null> {
   // The Contents API has no timestamp — ask the commits endpoint for the latest
   // commit touching this path. Non-fatal: the page renders without it.
   try {
-    const commits = await gh(`/commits?path=${file}&per_page=1`)
+    const commits = await gh(`/commits?path=${encodeURIComponent(file)}&per_page=1`)
     return commits[0]?.commit?.committer?.date ?? null
   } catch {
     return null
   }
 }
 
+/**
+ * Every note and folder in one call: the Git Trees API with recursive=1 (the
+ * Contents API would need one request per directory). Dot-paths (.gitkeep,
+ * .obsidian, .github) and non-markdown files are hidden.
+ */
+export async function listVault(): Promise<{ notes: string[]; folders: string[] }> {
+  let data: { tree?: { path: string; type: string }[] }
+  try {
+    data = await gh('/git/trees/HEAD?recursive=1')
+  } catch (err) {
+    if (err instanceof GitHubError && (err.status === 409 || err.status === 404)) return { notes: [], folders: [] } // empty repo
+    throw err
+  }
+  const visible = (p: string) => !p.split('/').some(s => s.startsWith('.'))
+  const entries = (data.tree ?? []).filter(e => visible(e.path))
+  return {
+    notes: entries.filter(e => e.type === 'blob' && e.path.toLowerCase().endsWith('.md')).map(e => e.path),
+    folders: entries.filter(e => e.type === 'tree').map(e => e.path),
+  }
+}
+
+/** Delete a note. The Contents API needs the blob sha, so read it first. */
+export async function deleteNoteFile(file: NotesFile): Promise<Response> {
+  try {
+    const { sha } = await getNotesFile(file)
+    await gh(`/contents/${encodePath(file)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ message: `delete note: ${file}`, sha }),
+    })
+    return Response.json({ ok: true })
+  } catch (err) {
+    return Response.json(
+      { error: `Delete failed: ${err instanceof Error ? err.message : 'unknown error'}` },
+      { status: err instanceof GitHubError && err.status === 404 ? 404 : 502 },
+    )
+  }
+}
+
 async function putNotesFile(file: NotesFile, content: string, sha: string, message: string) {
   // PUT with a stale sha → 409. That's our optimistic-concurrency check.
-  return gh(`/contents/${file}`, {
+  return gh(`/contents/${encodePath(file)}`, {
     method: 'PUT',
     body: JSON.stringify({
       message,
@@ -199,18 +269,22 @@ export async function saveNotesFile(file: NotesFile, content: string, sha: strin
   }
 }
 
-/** Create a missing file. PUT without a sha only succeeds if the path doesn't exist yet. */
-export async function createNotesFile(file: NotesFile, content: string): Promise<Response> {
+/**
+ * Create a missing file. PUT without a sha only succeeds if the path doesn't
+ * exist yet; GitHub creates any intermediate folders implicitly. `extra` is
+ * merged into the success JSON (e.g. the new note's href to navigate to).
+ */
+export async function createNotesFile(file: NotesFile, content: string, extra: object = {}): Promise<Response> {
   try {
-    await gh(`/contents/${file}`, {
+    await gh(`/contents/${encodePath(file)}`, {
       method: 'PUT',
       body: JSON.stringify({ message: `create ${file}`, content: Buffer.from(content, 'utf8').toString('base64') }),
     })
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, ...extra })
   } catch (err) {
     // GitHub answers 422 ("sha wasn't supplied") when the file already exists.
     if (err instanceof GitHubError && err.status === 422) {
-      return Response.json({ error: `${file} already exists — reload.` }, { status: 409 })
+      return Response.json({ error: `${file.replace(/\/\.gitkeep$/, '')} already exists.` }, { status: 409 })
     }
     return Response.json(
       { error: `Create failed: ${err instanceof Error ? err.message : 'unknown error'}` },
@@ -252,6 +326,11 @@ export function taskText(line: string) {
     .trim()
 }
 
+/** The markdown after the checkbox — what the inline editor shows. */
+export function taskSource(line: string) {
+  return line.replace(TASK_RE, '').trim()
+}
+
 export type PatchResult =
   | { kind: 'patched'; content: string; text: string }
   | { kind: 'noop' }        // already in the desired state (ticked on another device)
@@ -262,16 +341,41 @@ export type PatchResult =
  * source line as the client saw it. If the line moved (edited above on GitHub),
  * fall back to a unique match on the normalized text anywhere in the file.
  */
+/** 0-based index of the task line at `line` (1-based) matching `raw`; unique-text fallback; -1 if none. */
+function locateTaskLine(lines: string[], line: number, raw: string) {
+  const want = normalize(raw)
+  const idx = line - 1
+  if (lines[idx] !== undefined && TASK_RE.test(lines[idx]) && normalize(lines[idx]) === want) return idx
+  const matches = lines.flatMap((l, i) => (TASK_RE.test(l) && normalize(l) === want ? [i] : []))
+  return matches.length === 1 ? matches[0] : -1
+}
+
+/** Replace a task's text, keeping its indent, bullet and checkbox state. null if gone/ambiguous. */
+export function renameTask(content: string, line: number, raw: string, text: string): string | null {
+  const lines = content.split('\n')
+  const idx = locateTaskLine(lines, line, raw)
+  if (idx === -1) return null
+  const cr = lines[idx].endsWith('\r') ? '\r' : ''
+  lines[idx] = `${lines[idx].match(TASK_RE)![0]} ${text}${cr}`
+  return lines.join('\n')
+}
+
+/** Replace a section heading's text, keeping its level. null if gone/ambiguous. */
+export function renameHeading(content: string, ref: HeadingRef, text: string): string | null {
+  const found = locateHeading(content, ref)
+  if (!found) return null
+  const { kids, lines, hi } = found
+  const k = kids[hi].position!.start.line - 1
+  const cr = lines[k].endsWith('\r') ? '\r' : ''
+  lines[k] = `${'#'.repeat((kids[hi] as Heading).depth)} ${text}${cr}`
+  if (kids[hi].position!.end.line - 1 > k) lines.splice(k + 1, 1) // setext "===" underline: now ATX
+  return lines.join('\n')
+}
+
 export function patchTask(content: string, line: number, raw: string, checked: boolean): PatchResult {
   const lines = content.split('\n')
-  const want = normalize(raw)
-
-  let idx = line - 1
-  if (!(lines[idx] !== undefined && TASK_RE.test(lines[idx]) && normalize(lines[idx]) === want)) {
-    const matches = lines.flatMap((l, i) => (TASK_RE.test(l) && normalize(l) === want ? [i] : []))
-    if (matches.length !== 1) return { kind: 'not-found' }
-    idx = matches[0]
-  }
+  const idx = locateTaskLine(lines, line, raw)
+  if (idx === -1) return { kind: 'not-found' }
 
   const current = lines[idx].match(TASK_RE)![2] !== ' '
   if (current === checked) return { kind: 'noop' }

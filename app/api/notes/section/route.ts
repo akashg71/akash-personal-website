@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { addSection, editNotesFile, isNotesFile, isValidSession, SESSION_COOKIE } from '@/lib/notes'
+import { addSection, editNotesFile, isNotePath, isValidSession, SESSION_COOKIE } from '@/lib/notes'
 
 const MAX_LEN = 100
 
@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null)
-  if (!isNotesFile(body?.file)) return Response.json({ error: 'Bad request' }, { status: 400 })
+  if (!isNotePath(body?.file)) return Response.json({ error: 'Bad request' }, { status: 400 })
   // Single line, and leading #s dropped: the route always writes a level-2 heading.
   const title = typeof body.title === 'string' ? body.title.replace(/\s+/g, ' ').replace(/^#+\s*/, '').trim() : ''
   if (!title) return Response.json({ error: 'Give the section a name.' }, { status: 400 })

@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { editNotesFile, isNotesFile, isValidSession, patchTask, SESSION_COOKIE } from '@/lib/notes'
+import { editNotesFile, isNotePath, isValidSession, patchTask, SESSION_COOKIE } from '@/lib/notes'
 
 export async function POST(request: Request) {
   if (!isValidSession((await cookies()).get(SESSION_COOKIE)?.value)) {
@@ -8,7 +8,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null)
   if (
-    !body || !isNotesFile(body.file) || !Number.isInteger(body.line) ||
+    !body || !isNotePath(body.file) || !Number.isInteger(body.line) ||
     typeof body.raw !== 'string' || typeof body.checked !== 'boolean'
   ) {
     return Response.json({ error: 'Bad request' }, { status: 400 })

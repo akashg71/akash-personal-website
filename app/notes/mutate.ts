@@ -3,17 +3,16 @@
 // avoids self-inflicted conflicts and keeps the server's single retry for real ones.
 let chain: Promise<unknown> = Promise.resolve()
 
-export function mutate(url: string, body: unknown): Promise<void> {
+export function mutate(url: string, body: unknown): Promise<{ href?: string }> {
   const run = chain.then(async () => {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(data.error ?? `Save failed (${res.status})`)
-    }
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status})`)
+    return data
   })
   chain = run.catch(() => {}) // a failed write must not block the next one
   return run

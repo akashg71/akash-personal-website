@@ -1,14 +1,22 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { mutate } from './mutate'
 
+const RichEditor = dynamic(() => import('./RichEditor'), {
+  ssr: false,
+  loading: () => <p className="py-8 text-sm text-stone-400">loading editor…</p>,
+})
+
+type Mode = 'view' | 'rich' | 'source'
+
 /**
- * Rendered view ⇄ raw-markdown editor (Obsidian's "source mode"). The rendered
- * children are server-rendered and passed through untouched. Saving sends the
- * sha the editor was opened with; if the file changed meanwhile the server
- * refuses (409) and the text stays here so nothing is lost.
+ * Rendered view ⇄ editor. "rich" is Milkdown Crepe (WYSIWYG markdown, like
+ * Obsidian's live preview); "source" is the raw file. Both edit one `draft`.
+ * Saving sends the sha the editor was opened on and never retries: if the file
+ * changed meanwhile the server refuses (409) and the draft stays here.
  */
 export default function NotesView({
   file,
@@ -24,12 +32,18 @@ export default function NotesView({
   children: ReactNode
 }) {
   const router = useRouter()
-  const [editing, setEditing] = useState(false)
+  const [mode, setMode] = useState<Mode>('view')
   const [draft, setDraft] = useState(content)
   const [base, setBase] = useState({ content, sha }) // what the editor was opened on
+  const [richSeed, setRichSeed] = useState(content) // what the rich editor (re)mounts with
+  // "Dirty" is a string comparison, not an event flag: the editor emits updates
+  // while it settles, and its serialization of an untouched file can differ from
+  // the file (whitespace etc.). Baseline = the editor's own first serialization.
+  const [baseline, setBaseline] = useState(content)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const dirty = editing && draft !== base.content
+  const editing = mode !== 'view'
+  const dirty = editing && draft !== baseline
 
   // Don't lose an unsaved edit to a stray back-swipe or tab close.
   useEffect(() => {
@@ -42,54 +56,104 @@ export default function NotesView({
   function open() {
     setBase({ content, sha })
     setDraft(content)
+    setRichSeed(content)
+    setBaseline(content)
     setError(null)
-    setEditing(true)
+    setMode('rich')
   }
 
   function cancel() {
     if (dirty && !window.confirm('Discard your changes?')) return
-    setEditing(false)
+    setMode('view')
   }
 
-  function save() {
-    if (!dirty) return setEditing(false)
+  function switchTo(next: Mode) {
+    if (next === 'rich') setRichSeed(draft) // remount the rich editor on the source edits
+    setMode(next)
+  }
+
+  const save = useCallback(() => {
+    if (!dirty) return setMode('view')
     setPending(true)
     setError(null)
     mutate('/api/notes/save', { file, content: draft, sha: base.sha })
       .then(() => {
-        setEditing(false)
+        setBaseline(draft)
+        setMode('view')
         router.refresh()
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
-  }
+  }, [dirty, draft, base.sha, file, router])
 
-  const toolbarBtn = 'min-h-11 px-2 -mr-2 text-xs text-stone-500 hover:text-stone-900'
+  useEffect(() => {
+    if (!editing) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        save()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editing, save])
+
+  const quiet = 'min-h-11 px-2 text-xs text-stone-500 hover:text-stone-900'
+  const tab = (m: Mode, label: string) => (
+    <button
+      onClick={() => switchTo(m)}
+      className={`min-h-9 px-3 text-xs rounded ${mode === m ? 'bg-white shadow-sm text-stone-900' : 'text-stone-500'}`}
+    >
+      {label}
+    </button>
+  )
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-6">
         <div className="text-xs text-stone-400">{meta}</div>
         {editing ? (
-          <div className="flex gap-1">
-            <button onClick={cancel} disabled={pending} className={toolbarBtn}>cancel</button>
+          <div className="flex items-center gap-1 -mr-2">
+            <div className="flex rounded-md bg-stone-100 p-0.5 mr-1">
+              {tab('rich', 'rich')}
+              {tab('source', 'source')}
+            </div>
+            <button onClick={cancel} disabled={pending} className={quiet}>cancel</button>
             <button
               onClick={save}
               disabled={pending}
               className="h-9 px-3 rounded-md bg-stone-900 text-stone-50 text-xs font-medium active:bg-stone-700 disabled:opacity-50"
             >
-              {pending ? 'saving…' : 'save'}
+              {pending ? 'saving…' : dirty ? 'save' : 'done'}
             </button>
           </div>
         ) : (
-          <button onClick={open} className={toolbarBtn}>edit</button>
+          <button onClick={open} className={`${quiet} -mr-2`}>edit</button>
         )}
       </div>
 
-      {editing ? (
+      {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
+
+      {mode === 'rich' && (
+        <div className="-mx-2 rounded-md border border-stone-200 bg-white">
+          <RichEditor
+            initial={richSeed}
+            onReady={md => {
+              // First mount on an untouched file: adopt the editor's serialization as
+              // the baseline. A remount after source edits keeps the user's draft.
+              if (draft === baseline) {
+                setBaseline(md)
+                setDraft(md)
+              }
+            }}
+            onChange={setDraft}
+          />
+        </div>
+      )}
+
+      {mode === 'source' && (
         <div>
-          {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
-          {/* text-base (16px) stops iOS zoom; spellcheck off so code/ticker names aren't underlined */}
+          {/* text-base (16px) stops iOS zoom; spellcheck off so code/tickers aren't underlined */}
           <textarea
             value={draft}
             onChange={e => setDraft(e.target.value)}
@@ -101,9 +165,9 @@ export default function NotesView({
             Markdown: <code>## Section</code>, <code>- [ ] task</code>, indent two spaces to nest.
           </p>
         </div>
-      ) : (
-        children
       )}
+
+      {mode === 'view' && children}
     </>
   )
 }

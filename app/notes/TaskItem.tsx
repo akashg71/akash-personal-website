@@ -3,12 +3,14 @@
 import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { mutate } from './mutate'
+import EditableText from './EditableText'
 
 export default function TaskItem({
   file,
   line,
   raw,
   title,
+  source,
   initialChecked,
   label,
   children,
@@ -17,6 +19,7 @@ export default function TaskItem({
   line: number
   raw: string
   title: string // plain text, for the delete confirmation
+  source: string // markdown after the checkbox, for inline editing
   initialChecked: boolean
   label: ReactNode
   children?: ReactNode
@@ -57,19 +60,29 @@ export default function TaskItem({
   return (
     <li className="list-none">
       <div className="flex items-start">
-        <label className="flex flex-1 items-start gap-3 py-2 min-h-11 cursor-pointer select-none -ml-2 pl-2 rounded-md active:bg-stone-100">
+        {/* Only the checkbox ticks (44px target); tapping the text edits it. */}
+        <label className="size-11 shrink-0 -ml-3 flex items-center justify-center cursor-pointer rounded-md active:bg-stone-100">
           <input
             type="checkbox"
             checked={checked}
             onChange={toggle}
             disabled={pending}
-            className="mt-[3px] size-5 shrink-0 accent-stone-800 cursor-pointer"
+            aria-label={title}
+            className="size-5 accent-stone-800 cursor-pointer"
           />
-          <span className={checked ? 'text-stone-400 line-through decoration-stone-300' : 'text-stone-800'}>
-            {label}
-          </span>
         </label>
-        {/* Outside the <label> so tapping it can never toggle the checkbox. */}
+        <div className="flex-1 min-w-0 py-2.5">
+          <EditableText
+            file={file}
+            kind="task"
+            line={line}
+            raw={raw}
+            source={source}
+            className={checked ? 'text-stone-400 line-through decoration-stone-300' : 'text-stone-800'}
+          >
+            {label}
+          </EditableText>
+        </div>
         <button
           onClick={remove}
           disabled={pending}

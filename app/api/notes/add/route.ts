@@ -3,9 +3,9 @@ import {
   addToInbox,
   addToSection,
   editNotesFile,
-  isNotesFile,
+  isNotePath,
   isValidSession,
-  NOTES_FILES,
+  TODO_FILE,
   SESSION_COOKIE,
 } from '@/lib/notes'
 
@@ -27,8 +27,8 @@ export async function POST(request: Request) {
   if (heading !== undefined && !(Number.isInteger(heading?.line) && typeof heading?.raw === 'string')) {
     return Response.json({ error: 'Bad request' }, { status: 400 })
   }
-  const file = body.file ?? NOTES_FILES.todo
-  if (!isNotesFile(file)) return Response.json({ error: 'Bad request' }, { status: 400 })
+  const file = body.file ?? TODO_FILE
+  if (!isNotePath(file)) return Response.json({ error: 'Bad request' }, { status: 400 })
 
   return editNotesFile(file, content => {
     const next = heading ? addToSection(content, heading, text) : addToInbox(content, text)

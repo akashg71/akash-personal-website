@@ -16,24 +16,26 @@ export default function InlineAdd({
   body,
   field,
   keepOpen = false,
+  prefix = '',
 }: {
   trigger: string
   placeholder: string
   url: string
   body: Record<string, unknown>
-  field: 'text' | 'title'
+  field: 'text' | 'title' | 'name'
   keepOpen?: boolean
+  prefix?: string // pre-filled text, e.g. the current folder "Physics/"
 }) {
   const router = useRouter()
   const input = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(prefix)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   function close() {
     setOpen(false)
-    setValue('')
+    setValue(prefix)
     setError(null)
   }
 
@@ -43,11 +45,12 @@ export default function InlineAdd({
     setPending(true)
     setError(null)
     mutate(url, { ...body, [field]: value })
-      .then(() => {
-        setValue('')
+      .then(data => {
+        setValue(prefix)
         if (keepOpen) input.current?.focus() // rapid entry: type, enter, type, enter
         else setOpen(false)
-        router.refresh()
+        if (data.href) router.push(data.href) // e.g. open the note just created
+        else router.refresh()
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Save failed'))
       .finally(() => setPending(false))
@@ -75,7 +78,7 @@ export default function InlineAdd({
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => e.key === 'Escape' && close()}
           placeholder={placeholder}
-          maxLength={field === 'title' ? 100 : 300}
+          maxLength={field === 'text' ? 300 : 200}
           enterKeyHint={keepOpen ? 'next' : 'done'}
           className="h-11 flex-1 min-w-0 px-3 text-base rounded-md border border-stone-300 bg-white focus:outline-none focus:border-stone-500"
         />

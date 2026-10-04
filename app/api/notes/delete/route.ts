@@ -1,26 +1,28 @@
 import { cookies } from 'next/headers'
 import {
+  deleteNoteFile,
   deleteSection,
   deleteTask,
   editNotesFile,
   headingTitle,
-  isNotesFile,
+  isNotePath,
   isValidSession,
   SESSION_COOKIE,
   taskText,
 } from '@/lib/notes'
 
-// Body: { file, kind: 'task' | 'section', line, raw } — same addressing as toggle.
+// Body: { file, kind: 'note' } | { file, kind: 'task' | 'section', line, raw } — same addressing as toggle.
 export async function POST(request: Request) {
   if (!isValidSession((await cookies()).get(SESSION_COOKIE)?.value)) {
     return Response.json({ error: 'Not signed in — reload the page.' }, { status: 401 })
   }
 
   const body = await request.json().catch(() => null)
-  if (
-    !body || !isNotesFile(body.file) || !['task', 'section'].includes(body.kind) ||
-    !Number.isInteger(body.line) || typeof body.raw !== 'string'
-  ) {
+  if (!body || !isNotePath(body.file)) return Response.json({ error: 'Bad request' }, { status: 400 })
+
+  if (body.kind === 'note') return deleteNoteFile(body.file)
+
+  if (!['task', 'section'].includes(body.kind) || !Number.isInteger(body.line) || typeof body.raw !== 'string') {
     return Response.json({ error: 'Bad request' }, { status: 400 })
   }
 

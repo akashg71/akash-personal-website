@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { editNotesFile, isValidSession, NOTES_FILES, SESSION_COOKIE, stampReview } from '@/lib/notes'
+import { editNotesFile, isValidSession, TODO_FILE, SESSION_COOKIE, stampReview } from '@/lib/notes'
 
 export async function POST(request: Request) {
   if (!isValidSession((await cookies()).get(SESSION_COOKIE)?.value)) {
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Bad date' }, { status: 400 })
   }
 
-  return editNotesFile(NOTES_FILES.todo, content => {
+  return editNotesFile(TODO_FILE, content => {
     const next = stampReview(content, date)
     return next === null ? { noop: true } : { content: next, message: `review: ${date}` }
   })

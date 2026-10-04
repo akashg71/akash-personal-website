@@ -105,33 +105,17 @@ export class GitHubError extends Error {
   }
 }
 
-// GitHub reports when GITHUB_TOKEN expires on every response (no header = it
-// never does). Kept from the latest one so /notes can warn before it lapses.
-let tokenExpiration: string | null = null
+export { getTokenExpiration } from './notes/github'
+import { ghFetch } from './notes/github'
 
-/** The `github-authentication-token-expiration` header of GitHub's latest response. */
-export const getTokenExpiration = () => tokenExpiration
-
-async function gh(path: string, init: RequestInit = {}) {
-  const { token, repo } = notesConfig()
+async function gh(path: string, init: { method?: string; body?: string } = {}) {
   let res: Response
   try {
-    res = await fetch(`https://api.github.com/repos/${repo}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(10_000),
-    })
+    res = await ghFetch(path, init)
   } catch (err) {
     const timedOut = err instanceof Error && err.name === 'TimeoutError'
     throw new GitHubError(0, timedOut ? 'GitHub timed out after 10s' : 'GitHub unreachable (network error)')
   }
-  tokenExpiration = res.headers.get('github-authentication-token-expiration')
   if (!res.ok) {
     const hint =
       res.status === 401 ? 'token invalid or expired' :

@@ -1,7 +1,8 @@
 // Images: vault files and ![[embeds]] in view mode through the session-checked
-// image route.
+// image route, and the upload endpoint.
 import assert from 'node:assert/strict'
-import { BASE_URL, flow, open } from '../harness.mjs'
+import { test } from 'node:test'
+import { BASE_URL, fake, flow, open, PASSWORD } from '../harness.mjs'
 
 // An 8x6 red PNG.
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAIAAABxZ0isAAAAEUlEQVR4nGM4YaOBFTEMpAQAmkY4QXj/pr4AAAAASUVORK5CYII='
@@ -64,4 +65,42 @@ flow('view mode shows vault images and ![[embeds]]; the image route needs a sess
   const cookie = (await page.browserContext().cookies()).map(c => `${c.name}=${c.value}`).join('; ')
   const etag = headers.etag
   assert.equal((await fetch(url, { headers: { cookie, 'if-none-match': etag } })).status, 304)
+})
+
+async function session() {
+  const res = await fetch(`${BASE_URL}/api/notes/login`, { method: 'POST', body: new URLSearchParams({ password: PASSWORD }), redirect: 'manual' })
+  return res.headers.getSetCookie().find(c => c.startsWith('notes_session='))?.split(';')[0]
+}
+
+const upload = (cookie, bytes, query) => fetch(`${BASE_URL}/api/notes/upload?${new URLSearchParams(query)}`, {
+  method: 'POST',
+  headers: { cookie, 'content-type': 'image/png' },
+  body: bytes,
+})
+
+test('an upload commits the image under attachments/ and answers its link', async () => {
+  await fake.reset({ 'Physics/Waves.md': '# Waves\n' })
+  const cookie = await session()
+  const png = Buffer.from(PNG, 'base64')
+  const query = { note: 'Physics/Waves.md', name: 'Wave Diagram.PNG', date: '2026-10-04' }
+
+  const first = await upload(cookie, png, query)
+  assert.equal(first.status, 200)
+  const { path, src } = await first.json()
+  assert.deepEqual({ path, src }, { path: 'attachments/2026-10-04-wave-diagram.png', src: '../attachments/2026-10-04-wave-diagram.png' })
+  assert.deepEqual(await fake.bytes(path), png, 'the bytes as sent')
+  assert.deepEqual((await fake.state()).commits[0].paths, [path], 'one commit')
+
+  const second = await (await upload(cookie, png, query)).json()
+  assert.equal(second.path, 'attachments/2026-10-04-wave-diagram-2.png', 'a taken name gets -2')
+  const img = await fetch(BASE_URL + second.url, { headers: { cookie } })
+  assert.equal(img.headers.get('content-type'), 'image/png')
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), png)
+
+  const big = Buffer.alloc(4_000_001)
+  png.copy(big)
+  assert.equal((await upload(cookie, big, query)).status, 413)
+  assert.equal((await upload(cookie, Buffer.from('<html><script>alert(1)</script>'), { ...query, name: 'evil.png' })).status, 415)
+  assert.equal((await upload(cookie, png, { name: 'x.png' })).status, 400, 'no note to link from')
+  assert.equal((await fake.state()).commits.length, 3, 'refused uploads commit nothing')
 })

@@ -1,6 +1,19 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { imageType, imageUrl, imageWidth, normalizePath, resolveEmbed, resolveImage, splitAlt } from '@/lib/assets'
+import {
+  attachmentPath,
+  checkUpload,
+  imageType,
+  imageUrl,
+  imageWidth,
+  normalizePath,
+  relativeLink,
+  resolveEmbed,
+  resolveImage,
+  sniffImage,
+  splitAlt,
+  UPLOAD_LIMIT,
+} from '@/lib/assets'
 
 const assets = new Map([
   ['attachments/2026-10-04-a.png', 'a1'],
@@ -80,5 +93,61 @@ describe('vault images', () => {
     assert.deepEqual(splitAlt('A diagram|300'), { alt: 'A diagram', width: 300 })
     assert.deepEqual(splitAlt('a|b'), { alt: 'a|b' })
     assert.deepEqual(splitAlt('plain'), { alt: 'plain' })
+  })
+})
+
+describe('uploads', () => {
+  const bytes = (...parts: (string | number[])[]) =>
+    Uint8Array.from(parts.flatMap(p => (typeof p === 'string' ? [...p].map(c => c.charCodeAt(0)) : p)))
+  const PNG = bytes([0x89], 'PNG\r\n\x1a\n', [0, 0, 0, 13])
+  const JPEG = bytes([0xff, 0xd8, 0xff, 0xe0, 0, 16])
+  const GIF = bytes('GIF89a', [1, 0])
+  const WEBP = bytes('RIFF', [0, 0, 0, 0], 'WEBPVP8 ')
+
+  test('the type comes from the bytes, never the name', () => {
+    assert.equal(sniffImage(PNG), 'png')
+    assert.equal(sniffImage(JPEG), 'jpg')
+    assert.equal(sniffImage(GIF), 'gif')
+    assert.equal(sniffImage(bytes('GIF87a')), 'gif')
+    assert.equal(sniffImage(WEBP), 'webp')
+    for (const other of [bytes('<html><script>alert(1)</script>'), bytes('<svg xmlns="http://www.w3.org/2000/svg"/>'), bytes('%PDF-1.7'), bytes('RIFF', [0, 0, 0, 0], 'WAVE'), bytes([0x89], 'PNX'), bytes()]) {
+      assert.equal(sniffImage(other), null)
+    }
+  })
+
+  test('checkUpload: PNG, JPEG, GIF and WebP up to 4,000,000 bytes', () => {
+    assert.deepEqual(checkUpload(JPEG), { ext: 'jpg' })
+    const max = new Uint8Array(UPLOAD_LIMIT)
+    max.set(PNG)
+    assert.deepEqual(checkUpload(max), { ext: 'png' })
+    const over = new Uint8Array(UPLOAD_LIMIT + 1)
+    over.set(PNG)
+    assert.equal((checkUpload(over) as { status: number }).status, 413)
+    assert.equal((checkUpload(bytes('<html>')) as { status: number }).status, 415)
+    assert.equal((checkUpload(bytes()) as { status: number }).status, 400)
+  })
+
+  test('attachment paths: dated, slugged, numbered when taken', () => {
+    assert.equal(attachmentPath('2026-10-04', 'Screenshot 2026-10-04 at 10.12.PNG', 'png'), 'attachments/2026-10-04-screenshot-2026-10-04-at-10-12.png')
+    assert.equal(attachmentPath('2026-10-04', 'image.png', 'webp', 2), 'attachments/2026-10-04-image-2.webp')
+    assert.equal(attachmentPath('2026-10-04', 'Café Ünïcode.jpeg', 'jpg'), 'attachments/2026-10-04-cafe-unicode.jpg')
+    assert.equal(attachmentPath('2026-10-04', '???.png', 'png'), 'attachments/2026-10-04-image.png')
+    assert.equal(attachmentPath('2026-10-04', '', 'gif'), 'attachments/2026-10-04-image.gif')
+    assert.equal(attachmentPath('2026-10-04', '../../etc/passwd', 'png'), 'attachments/2026-10-04-passwd.png')
+    assert.equal(attachmentPath('2026-10-04', `${'a'.repeat(59)} b.png`, 'png'), `attachments/2026-10-04-${'a'.repeat(59)}.png`)
+  })
+
+  test('links are relative to the note and resolve back to the file', () => {
+    const cases: [note: string, path: string, link: string][] = [
+      ['todo.md', 'attachments/a.png', 'attachments/a.png'],
+      ['Physics/Mechanics.md', 'attachments/a.png', '../attachments/a.png'],
+      ['A/B/C.md', 'attachments/a.png', '../../attachments/a.png'],
+      ['attachments/n.md', 'attachments/a.png', 'a.png'],
+      ['My Notes/x.md', 'img/x y.png', '../img/x%20y.png'],
+    ]
+    for (const [note, path, link] of cases) {
+      assert.equal(relativeLink(note, path), link)
+      assert.equal(resolveImage(note, link, new Map([[path, 'sha']])), path)
+    }
   })
 })

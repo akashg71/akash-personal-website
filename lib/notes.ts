@@ -109,8 +109,8 @@ export { getTokenExpiration } from './notes/github'
 import { ghFetch } from './notes/github'
 // Pages read the vault from the snapshot; every write below is applied to it.
 export { currentSnapshot, lastUpdated, readNote, warmSnapshot } from './notes/snapshot'
-import { applyWrite, vaultEntries, type Snapshot, type TreeEntry } from './notes/snapshot'
-import type { AssetIndex } from './assets'
+import { applyWrite, currentSnapshot, vaultEntries, type Snapshot, type TreeEntry } from './notes/snapshot'
+import { attachmentPath, imageUrl, relativeLink, type AssetIndex } from './assets'
 
 async function gh(path: string, init: { method?: string; body?: string } = {}) {
   let res: Response
@@ -314,6 +314,38 @@ export async function createNotesFile(file: NotesFile, content: string, extra: o
       { status: 502 },
     )
   }
+}
+
+/**
+ * Commit an image as attachments/<date>-<name>.<ext>, in one commit. A PUT
+ * without a sha only creates, so a name that's taken (422) moves on to -2,
+ * -3…; names the snapshot already lists are skipped without a request.
+ * Answers { ok, path, src, url }: `src` is the link relative to `note`.
+ */
+export async function uploadImage(note: NotesFile, bytes: Uint8Array, name: string, date: string, ext: string): Promise<Response> {
+  const snap = await currentSnapshot()
+  const taken = new Set(snap?.assets.map(e => e.path) ?? [])
+  const content = Buffer.from(bytes).toString('base64')
+  for (let n = 1, tries = 0; tries < 5; n++) {
+    const path = attachmentPath(date, name, ext, n)
+    if (taken.has(path)) continue
+    tries++
+    try {
+      const res = await gh(`/contents/${encodePath(path)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ message: `upload ${path}`, content }),
+      })
+      applyWrite(path, bytes, res)
+      return Response.json({ ok: true, path, src: relativeLink(note, path), url: imageUrl(path, res.content.sha) })
+    } catch (err) {
+      if (err instanceof GitHubError && err.status === 422) continue
+      return Response.json(
+        { error: `Upload failed: ${err instanceof Error ? err.message : 'unknown error'}` },
+        { status: 502 },
+      )
+    }
+  }
+  return Response.json({ error: 'Upload failed: every name tried is taken.' }, { status: 409 })
 }
 
 // ── Markdown structure ──────────────────────────────────────

@@ -105,3 +105,49 @@ export function splitAlt(alt: string): { alt: string; width?: number } {
   const width = bar === -1 ? undefined : imageWidth(alt.slice(bar + 1))
   return width ? { alt: alt.slice(0, bar).trim(), width } : { alt }
 }
+
+// ── Uploads ─────────────────────────────────────────────────
+
+/** Vercel Hobby takes request bodies up to 4.5 MB; this leaves room for the rest. */
+export const UPLOAD_LIMIT = 4_000_000
+
+/** What an upload is, by its first bytes: never by the name or type the client sent. */
+export function sniffImage(bytes: Uint8Array): 'png' | 'jpg' | 'gif' | 'webp' | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to))
+  if (ascii(0, 8) === '\x89PNG\r\n\x1a\n') return 'png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpg'
+  if (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a') return 'gif'
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'webp'
+  return null
+}
+
+/** The extension to store an upload under, or why it is refused. */
+export function checkUpload(bytes: Uint8Array): { ext: string } | { status: 400 | 413 | 415; error: string } {
+  if (!bytes.length) return { status: 400, error: 'The image is empty.' }
+  if (bytes.length > UPLOAD_LIMIT) return { status: 413, error: 'Images can be up to 4 MB.' }
+  const ext = sniffImage(bytes)
+  return ext ? { ext } : { status: 415, error: 'Only PNG, JPEG, GIF or WebP images.' }
+}
+
+/** "Screenshot at 10.12.PNG" → "attachments/2026-10-04-screenshot-at-10-12.png"; n > 1 adds "-n". */
+export function attachmentPath(date: string, original: string, ext: string, n = 1): string {
+  const slug = original
+    .replace(/^.*[\\/]/, '') // a name, never a path
+    .replace(/\.[^.]*$/, '')
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 60)
+    .replace(/^-+|-+$/g, '')
+  return `${ATTACHMENTS_DIR}/${date}-${slug || 'image'}${n > 1 ? `-${n}` : ''}.${ext}`
+}
+
+/** How `note` links a vault file: relative to the note's folder, which GitHub and Obsidian both follow. */
+export function relativeLink(note: string, path: string): string {
+  const from = dirOf(note).split('/').filter(Boolean)
+  const to = path.split('/')
+  let same = 0
+  while (same < from.length && same < to.length - 1 && from[same] === to[same]) same++
+  return [...from.slice(same).map(() => '..'), ...to.slice(same).map(encodeURIComponent)].join('/')
+}

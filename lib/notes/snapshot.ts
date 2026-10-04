@@ -226,36 +226,41 @@ export type ContentsWrite = {
 }
 
 /**
- * Our own commit through the Contents API. A note written on top of the
- * snapshot's commit is patched in, so the page refresh after a write is a free
- * 304 that already shows it. Anything else (a delete, a folder's .gitkeep, a
- * parent we haven't seen) only drops the etag: the next read lists the tree
- * again but downloads no blob it already has.
+ * Our own commit through the Contents API: a note's text, an image's bytes,
+ * or null for a delete. A note or image written on top of the snapshot's
+ * commit is patched in, so the page refresh after a write is a free 304 that
+ * already shows it. Anything else (a delete, a folder's .gitkeep, a parent we
+ * haven't seen) only drops the etag: the next read lists the tree again but
+ * downloads no blob it already has.
  */
-export function applyWrite(path: string, text: string | null, res: ContentsWrite) {
+export function applyWrite(path: string, content: string | Uint8Array | null, res: ContentsWrite) {
   state.writes++
   state.inflight = null // a sync already running predates this write
   // The write already happened: whatever GitHub answered, this must not throw.
-  const blob = text !== null && res?.content && gitBlobSha(text) === res.content.sha ? { ...res.content, text } : null
+  const sha = content !== null && res?.content && gitBlobSha(content) === res.content.sha ? res.content.sha : null
+  const note = sha !== null && typeof content === 'string' && isNote(path)
+  const asset = sha !== null && content instanceof Uint8Array && isAsset(path)
   const date = res?.commit?.committer?.date
-  if (blob) {
-    state.blobs.set(blob.sha, blob.text)
-    if (date) state.updated.set(`${blob.sha} ${path}`, date)
+  if (sha !== null && typeof content === 'string') {
+    state.blobs.set(sha, content)
+    if (date) state.updated.set(`${sha} ${path}`, date)
   }
   const snap = state.snap
   if (!snap) return
-  if (!blob || !isNote(path) || !res.commit?.sha || res.commit.parents?.[0]?.sha !== snap.commit) {
+  if (!sha || !(note || asset) || !res.commit?.sha || res.commit.parents?.[0]?.sha !== snap.commit) {
     state.snap = { ...snap, etag: null }
     return
   }
-  const entry = { path, sha: blob.sha, size: blob.size ?? Buffer.byteLength(blob.text) }
+  const entry = { path, sha, size: res.content?.size ?? (typeof content === 'string' ? Buffer.byteLength(content) : content!.length) }
+  const upsert = (list: Entry[]) => (list.some(e => e.path === path) ? list.map(e => (e.path === path ? entry : e)) : [...list, entry])
   const folders = new Set(snap.folders)
-  for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) folders.add(path.slice(0, i))
+  if (note) for (let i = path.indexOf('/'); i !== -1; i = path.indexOf('/', i + 1)) folders.add(path.slice(0, i))
   state.snap = {
     ...snap,
     commit: res.commit.sha,
     etag: `"${res.commit.sha}"`, // what commits/HEAD sends as its ETag
-    notes: snap.notes.some(e => e.path === path) ? snap.notes.map(e => (e.path === path ? entry : e)) : [...snap.notes, entry],
+    notes: note ? upsert(snap.notes) : snap.notes,
     folders: [...folders],
+    assets: asset ? upsert(snap.assets) : snap.assets,
   }
 }

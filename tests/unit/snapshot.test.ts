@@ -103,6 +103,23 @@ describe('snapshot sync', () => {
     assert.equal(await lastUpdated('New/idea.md', sha, async () => assert.fail('asked GitHub')), res.commit.committer?.date)
   })
 
+  test('our own image upload: the next read is a free 304 that lists it; its folder stays hidden', async () => {
+    await getSnapshot()
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3])
+    const res = await fetch(`https://api.github.com/repos/${FAKE_REPO}/contents/attachments/a.png`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${FAKE_TOKEN}` },
+      body: JSON.stringify({ message: 'upload', content: bytes.toString('base64') }),
+    }).then(r => r.json() as Promise<ContentsWrite>)
+    calls()
+    applyWrite('attachments/a.png', bytes, res)
+    const snap = await getSnapshot()
+    assert.deepEqual(calls(), ['commits.get 304'])
+    assert.deepEqual(snap.assets.at(-1), { path: 'attachments/a.png', sha: gitBlobSha(bytes), size: 8 })
+    assert.equal(snap.notes.length, 153)
+    assert.ok(!snap.folders.includes('attachments'))
+  })
+
   test('our write on top of a commit we have not seen: re-lists the tree, keeps our blob', async () => {
     await getSnapshot()
     fake.write({ 'Notes/n1.md': 'changed elsewhere\n' })
